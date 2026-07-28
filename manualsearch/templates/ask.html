@@ -12,6 +12,15 @@
     キーワード検索は <a href="/search?machine={{ machine|urlencode }}">こちら</a> から使えます。
   </p>
 </div>
+{% elif not ai_enabled %}
+<div class="card">
+  <h2>AIに相談する機能はまだ有効になっていません</h2>
+  <p class="muted">
+    OpenAIのAPIキーを登録すると使えるようになります。
+    <a href="/settings">設定画面</a> でキーを貼り付けて保存するだけです（再起動は不要）。
+  </p>
+  <p style="margin-bottom:0"><a href="/settings">→ 設定画面をひらく</a></p>
+</div>
 {% elif answer %}
 
 <div class="card">

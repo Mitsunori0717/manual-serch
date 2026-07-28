@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}設定{% endblock %}
+{% block content %}
+
+{% if saved %}
+<p class="notice muted">保存しました。すぐに反映されています（再起動は不要です）。</p>
+{% endif %}
+
+<div class="card">
+  <h2>AIに相談する機能</h2>
+  <p class="muted">
+    現在の状態:
+    {% if ai.enabled %}
+    <b style="color:var(--accent)">有効</b>（モデル: {{ ai.model }} ／ キー: {{ api_key_masked }}）
+    {% else %}
+    <b class="warn-cell">無効</b> — APIキーが登録されていません
+    {% endif %}
+  </p>
+
+  <form method="post" action="/settings" autocomplete="off">
+    <table>
+      <tr>
+        <th style="width:10em"><label for="api_key">OpenAI APIキー</label></th>
+        <td>
+          <input type="password" id="api_key" name="api_key" style="width:100%"
+                 placeholder="{{ 'sk-… （登録済み。変えるときだけ入力）' if ai.enabled else 'sk-… を貼り付け' }}">
+          <div class="muted" style="font-size:12px">
+            <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">
+              platform.openai.com</a> で発行できます。空欄のまま保存すると、今のキーはそのままです。
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <th><label for="model">モデル</label></th>
+        <td>
+          <input type="text" id="model" name="model" value="{{ ai.model }}" style="width:100%">
+          <div class="muted" style="font-size:12px">
+            迷ったらこのままで構いません。安く速いモデルが既定です。
+          </div>
+        </td>
+      </tr>
+    </table>
+    <p><button type="submit">保存する</button></p>
+  </form>
+
+  {% if ai.enabled %}
+  <form method="post" action="/settings"
+        onsubmit="return confirm('APIキーを削除して、AIに相談する機能を無効にします。よろしいですか？')">
+    <input type="hidden" name="clear" value="1">
+    <button type="submit" style="background:transparent;color:var(--warn);border-color:var(--line)">
+      APIキーを削除して無効にする
+    </button>
+  </form>
+  {% endif %}
+
+  <p class="notice warn muted" style="margin-top:16px;margin-bottom:0">
+    有効にすると、質問に関係するマニュアルのページ本文がOpenAIのサーバーへ送られます
+    （マニュアル全体は送りません）。社外に出せない内容を含む場合は、社内で利用可否を
+    確認してから使ってください。利用量に応じてOpenAIの料金がかかります。
+  </p>
+</div>
+
+<div class="card">
+  <h2>OCR（スキャンしたPDFの読み取り）</h2>
+  <p class="muted" style="margin-bottom:0">
+    {% if ocr_available %}
+    <b style="color:var(--accent)">利用可</b>（{{ ocr_detail }}）— 文字が画像で入っているページは
+    自動でOCRにかけます。
+    {% else %}
+    <b class="warn-cell">利用不可</b>（{{ ocr_detail }}）— テキストを持つPDFは検索できますが、
+    スキャンしただけのPDFは読み取れません。
+    <a href="https://github.com/UB-Mannheim/tesseract/wiki" target="_blank" rel="noopener">Tesseract</a>
+    をインストールし、言語データで Japanese を選んでください。
+    {% endif %}
+  </p>
+</div>
+
+<div class="card">
+  <h2>この環境</h2>
+  <table>
+    <tr><th style="width:10em">PDF置き場</th><td class="path" style="margin:0">{{ root }}</td></tr>
+    <tr><th>索引DB</th><td class="path" style="margin:0">{{ db_path }}</td></tr>
+    <tr><th>マニュアル一覧</th><td class="path" style="margin:0">{{ library_path }}</td></tr>
+    <tr><th>設定ファイル</th><td class="path" style="margin:0">{{ env_path }}</td></tr>
+    <tr><th>登録状況</th><td>
+      {{ "{:,}".format(stats.documents) }} 冊 ／ {{ "{:,}".format(stats.machines) }} 機種 ／
+      {{ "{:,}".format(stats.indexed_pages) }} ページ（うちOCR {{ "{:,}".format(stats.ocr_pages) }}）
+    </td></tr>
+  </table>
+  <p class="muted" style="margin-bottom:0">
+    APIキーは設定ファイルに保存されます。このファイルはパスワードと同じ扱いで、
+    共有フォルダに置いたり、社外に出したりしないでください。
+  </p>
+</div>
+{% endblock %}

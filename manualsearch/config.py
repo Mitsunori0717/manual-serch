@@ -6,6 +6,37 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+# APIキーなどを書いておくファイル。Windowsで環境変数を設定するのは手間なので、
+# start.bat と同じ場所にこれを置くだけで設定できるようにする。
+ENV_FILENAME = ".env"
+
+
+def load_env_file(path: Path | str = ENV_FILENAME) -> dict[str, str]:
+    """``.env`` を読んで環境変数に流し込む。返り値は読み込めた項目。
+
+    既に環境変数側で設定されているものは上書きしない（一時的に別のキーで
+    動かしたいときに、環境変数のほうが勝つようにするため）。
+    """
+    path = Path(path)
+    if not path.is_file():
+        return {}
+
+    loaded: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key.startswith("export "):  # シェル用に書かれていても読めるように
+            key = key[len("export ") :].strip()
+        value = value.strip().strip('"').strip("'")
+        if not key or not value:
+            continue
+        loaded[key] = value
+        os.environ.setdefault(key, value)
+    return loaded
+
 # ページのテキストがこの文字数未満なら「画像だけのページ」とみなしてOCRに回す
 OCR_TEXT_THRESHOLD = int(os.environ.get("MANUAL_OCR_THRESHOLD", "16"))
 
@@ -17,6 +48,46 @@ OCR_LANG = os.environ.get("MANUAL_OCR_LANG", "jpn+eng")
 
 # マニュアル一覧（ライブラリ台帳）のファイル名。PDF置き場の直下に置く。
 LIBRARY_FILENAME = os.environ.get("MANUAL_LIBRARY", "library.csv")
+
+
+def save_env_file(values: dict[str, str], path: Path | str = ENV_FILENAME) -> None:
+    """``.env`` の項目を書き換える。他の行はそのまま残す。
+
+    値が空文字のものは、その項目ごと削除する（APIキーの取り消し用）。
+    """
+    path = Path(path)
+    lines = path.read_text(encoding="utf-8-sig").splitlines() if path.is_file() else []
+    remaining = dict(values)
+    out: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        key = stripped.partition("=")[0].strip() if "=" in stripped else ""
+        if not stripped.startswith("#") and key in remaining:
+            value = remaining.pop(key)
+            if value:  # 空なら行ごと消す
+                out.append(f"{key}={value}")
+        else:
+            out.append(line)
+
+    for key, value in remaining.items():
+        if value:
+            out.append(f"{key}={value}")
+
+    path.write_text("\n".join(out).strip() + "\n", encoding="utf-8")
+    # 書き込んだ内容をこのプロセスにも反映する（再起動なしで効かせるため）
+    for key, value in values.items():
+        if value:
+            os.environ[key] = value
+        else:
+            os.environ.pop(key, None)
+
+
+def mask_secret(value: str) -> str:
+    """APIキーを画面に出すための伏せ字。"""
+    if not value:
+        return ""
+    return f"{value[:6]}…{value[-4:]}" if len(value) > 14 else "…" * 4
 
 
 @dataclass(frozen=True)

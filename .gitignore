@@ -1,3 +1,6 @@
+# APIキーを書くファイル。絶対にコミットしない。
+.env
+
 __pycache__/
 *.py[cod]
 .venv/

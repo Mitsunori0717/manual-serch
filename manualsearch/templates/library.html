@@ -2,16 +2,24 @@
 {% block title %}マニュアル一覧{% endblock %}
 {% block content %}
 
+{% if saved %}
+<p class="notice muted">{{ saved }} 件の機種・分類を保存しました。</p>
+{% endif %}
+
 <p class="muted">
   {%- if machine %}<span class="chip">{{ machine }}</span>{% endif -%}
   {{ documents|length }} 件
 </p>
 
+<form method="post" action="/library">
 <div class="card overflow">
   <table>
     <thead>
       <tr>
-        <th>機種</th><th>タイトル</th><th>分類</th><th>ページ</th>
+        <th style="min-width:11em">機種</th>
+        <th>タイトル</th>
+        <th style="min-width:7em">分類</th>
+        <th>ページ</th>
         <th title="本文を取り出せたページ数／全ページ数">本文</th>
         <th title="テキストが無くてOCRにかけたページ数">OCR</th>
         <th>メモ</th>
@@ -21,15 +29,17 @@
       {% for doc in documents %}
       <tr>
         <td>
-          {% if doc['machine'] %}
-          <a href="/library?machine={{ doc['machine']|urlencode }}">{{ doc['machine'] }}</a>
-          {% else %}<span class="muted">-</span>{% endif %}
+          <input type="text" name="machine_{{ doc['id'] }}" value="{{ doc['machine'] }}"
+                 list="machine-names" style="width:100%" placeholder="機種名">
         </td>
         <td>
           <a href="/file/{{ doc['id'] }}">{{ doc['title'] }}</a>
           <div class="path">{{ doc['path'] }}</div>
         </td>
-        <td>{{ doc['category'] or '' }}</td>
+        <td>
+          <input type="text" name="category_{{ doc['id'] }}" value="{{ doc['category'] }}"
+                 list="category-names" style="width:100%" placeholder="操作 / 保守 …">
+        </td>
         <td>{{ doc['page_count'] }}</td>
         {% if doc['page_count'] and doc['indexed_pages'] * 2 < doc['page_count'] %}
         <td class="warn-cell" title="本文をほとんど取り出せていません。文字が画像で入っている可能性が高いので、OCRを有効にして索引を作り直してください。">
@@ -44,24 +54,44 @@
       {% endfor %}
     </tbody>
   </table>
+
+  <datalist id="machine-names">
+    {% for item in machines %}<option value="{{ item.name }}">{% endfor %}
+  </datalist>
+  <datalist id="category-names">
+    <option value="操作"><option value="保守"><option value="部品"><option value="アラーム">
+  </datalist>
+
+  <p style="margin:14px 0 0">
+    <button type="submit">機種・分類を保存する</button>
+    <span class="muted" style="margin-left:10px">
+      入力すると「使っている機械」の選択肢になります。保存すると <kbd>library.csv</kbd>
+      にも書き込むので、索引を作り直しても残ります。
+    </span>
+  </p>
 </div>
+</form>
 
 <div class="card">
-  <h2>一覧を編集する</h2>
-  <p class="muted">
+  <h2>読み取り状況について</h2>
+  <p class="muted" style="margin-bottom:0">
     「本文」の列は、そのPDFから文字を取り出せたページ数です。ページ数とほぼ同じなら
     検索できています。<span class="warn-cell">⚠</span> が付いているPDFは文字が画像として
     入っているので、OCRを有効にして索引を作り直してください
     （<kbd>manualsearch index manuals --ocr force</kbd>）。
   </p>
+</div>
+
+<div class="card">
+  <h2>まとめて編集する</h2>
   <p class="muted">
-    機種・タイトル・分類・メモは、PDF置き場の <kbd>library.csv</kbd> で管理しています。
-    Excelで開いて編集し、<kbd>index</kbd> を実行し直すと画面に反映されます。
+    件数が多いときは、PDF置き場の <kbd>library.csv</kbd> をExcelで開いて編集し、
+    <kbd>index</kbd> を実行し直すほうが早いです。
   </p>
   <table>
     <tr><td><kbd>manualsearch library --init</kbd></td><td>今あるPDFから台帳の下書きを作る</td></tr>
-    <tr><td><kbd>manualsearch set &lt;パス&gt; --machine ロボドリル</kbd></td><td>1件だけその場で直す</td></tr>
-    <tr><td><kbd>manualsearch add &lt;PDF&gt; --machine ロボドリル</kbd></td><td>1冊追加して分析する</td></tr>
+    <tr><td><kbd>manualsearch set &lt;パス&gt; --machine ROBODRILL</kbd></td><td>1件だけコマンドで直す</td></tr>
+    <tr><td><kbd>manualsearch add &lt;PDF&gt; --machine ROBODRILL</kbd></td><td>1冊追加して分析する</td></tr>
   </table>
   <p class="path" style="margin-bottom:0">台帳: {{ library_path }}</p>
 </div>

@@ -5,9 +5,10 @@
 
 画面は3つ。
 
-- ``/``        機種を選んでキーワード検索する
-- ``/ask``     機種を選んで自然文で相談する（ChatGPT API。キーが無ければ非表示）
-- ``/library`` 登録済みマニュアルの一覧
+- ``/``         機種を選んでキーワード検索する
+- ``/ask``      機種を選んで自然文で相談する（ChatGPT API）
+- ``/library``  登録済みマニュアルの一覧
+- ``/settings`` APIキーなどの設定。画面から保存でき、再起動なしで反映する
 """
 
 from __future__ import annotations
@@ -17,14 +18,16 @@ import sqlite3
 from pathlib import Path
 from urllib.parse import quote, unquote
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
-from . import db, search as search_mod
+from . import db, library, search as search_mod
 from .assistant import Assistant, AssistantError, link_citations
-from .config import Config
+from .config import ENV_FILENAME, AiConfig, Config, mask_secret, save_env_file
+from .extract import ocr_status
+from .library import LibraryEntry
 
 PER_PAGE = 30
 # 選んだ機種を覚えておく期間（毎回選び直さなくて済むように）
@@ -40,7 +43,10 @@ def create_app(config: Config) -> FastAPI:
     # 出典番号をリンクに変えたHTMLを、テンプレート側で |safe を書かずに使えるようにする
     templates.env.filters["cite"] = lambda answer: Markup(link_citations(answer))
     app.state.config = config
+    app.state.ai_config = config.ai
     app.state.assistant = Assistant(config.ai) if config.ai.enabled else None
+    # 設定画面から書き込む .env の場所（起動したフォルダの直下）
+    app.state.env_path = ENV_FILENAME
 
     def get_conn() -> sqlite3.Connection:
         conn: sqlite3.Connection | None = getattr(app.state, "conn", None)
@@ -72,6 +78,7 @@ def create_app(config: Config) -> FastAPI:
             "machines": machines,
             "machine": selected,
             "ai_enabled": app.state.assistant is not None,
+            "ai_configurable": True,
             "tab": tab,
             "root": str(config.root),
         }
@@ -137,12 +144,9 @@ def create_app(config: Config) -> FastAPI:
         context = base_context(request, conn, machine, tab="ask")
         context["q"] = q
 
+        # キー未設定のときはテンプレート側が設定画面へ案内する
         assistant: Assistant | None = app.state.assistant
-        if assistant is None:
-            context["ai_error"] = (
-                "ChatGPT連携が無効です。OPENAI_API_KEY を設定して起動し直してください。"
-            )
-        elif q.strip():
+        if assistant is not None and q.strip():
             try:
                 context["answer"] = assistant.ask(conn, q, machine=context["machine"] or None)
             except AssistantError as exc:
@@ -186,17 +190,125 @@ def create_app(config: Config) -> FastAPI:
             }
         )
 
+    # ------------------------------------------------------------------ 設定
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings_page(
+        request: Request,
+        saved: str = Query(""),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        return templates.TemplateResponse(
+            request, "settings.html", {**settings_context(request, conn), "saved": saved}
+        )
+
+    @app.post("/settings")
+    def save_settings(
+        request: Request,
+        api_key: str = Form(""),
+        model: str = Form(""),
+        clear: str = Form(""),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        values: dict[str, str] = {}
+        if clear:
+            values["OPENAI_API_KEY"] = ""
+        elif api_key.strip():
+            values["OPENAI_API_KEY"] = api_key.strip()
+        if model.strip():
+            values["MANUAL_AI_MODEL"] = model.strip()
+
+        if values:
+            save_env_file(values, app.state.env_path)
+            # 再起動せずに反映する
+            app.state.ai_config = AiConfig.from_env()
+            app.state.assistant = (
+                Assistant(app.state.ai_config) if app.state.ai_config.enabled else None
+            )
+
+        return RedirectResponse(url="/settings?saved=1", status_code=303)
+
+    def settings_context(request: Request, conn: sqlite3.Connection) -> dict:
+        ai: AiConfig = app.state.ai_config
+        ocr_available, ocr_detail = ocr_status()
+        return {
+            **base_context(request, conn, tab="settings"),
+            "ai": ai,
+            "api_key_masked": mask_secret(ai.api_key),
+            "ocr_available": ocr_available,
+            "ocr_detail": ocr_detail,
+            "db_path": str(config.db_path),
+            "library_path": str(config.library_path),
+            "env_path": str(Path(app.state.env_path).resolve()),
+        }
+
     # ------------------------------------------------------------------ 一覧
     @app.get("/library", response_class=HTMLResponse)
     def library_page(
         request: Request,
         machine: str = Query(""),
+        saved: str = Query(""),
         conn: sqlite3.Connection = Depends(get_conn),
     ):
         context = base_context(request, conn, machine, tab="library")
         context["documents"] = search_mod.list_documents(conn, machine=context["machine"] or None)
         context["library_path"] = str(config.library_path)
+        context["saved"] = saved
         return templates.TemplateResponse(request, "library.html", context)
+
+    @app.post("/library")
+    async def save_library(request: Request):
+        """一覧の画面で編集した機種・分類を保存する。
+
+        DBだけでなく library.csv にも書くので、索引を作り直しても設定が残る。
+        """
+        form = await request.form()
+        machines: dict[int, str] = {}
+        categories: dict[int, str] = {}
+        for key, value in form.items():
+            field, _, raw_id = str(key).partition("_")
+            if not raw_id.isdigit():
+                continue
+            if field == "machine":
+                machines[int(raw_id)] = str(value).strip()
+            elif field == "category":
+                categories[int(raw_id)] = str(value).strip()
+
+        # 画面からの書き込みなので、読み取り専用ではない接続を別に開く
+        write_conn = db.connect(config.db_path)
+        try:
+            entries = library.load(config.library_path)
+            changed = 0
+            for doc_id, machine in machines.items():
+                row = search_mod.get_document(write_conn, doc_id)
+                if row is None:
+                    continue
+                category = categories.get(doc_id, row["category"])
+                if row["machine"] == machine and row["category"] == category:
+                    continue
+
+                db.update_metadata(
+                    write_conn,
+                    doc_id,
+                    title=row["title"],
+                    machine=machine,
+                    category=category,
+                    tags=row["tags"],
+                    note=row["note"],
+                )
+                entry = entries.get(row["path"]) or LibraryEntry(path=row["path"])
+                entry.machine = machine
+                entry.category = category
+                entries[row["path"]] = entry
+                changed += 1
+
+            if changed:
+                library.save(
+                    config.library_path, sorted(entries.values(), key=lambda e: e.path)
+                )
+        finally:
+            write_conn.close()
+
+        return RedirectResponse(url=f"/library?saved={changed}", status_code=303)
 
     @app.get("/api/search")
     def api_search(

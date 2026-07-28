@@ -174,10 +174,9 @@
   </div>
   <nav class="tabs">
     <a href="/search?machine={{ machine|urlencode }}&q={{ q|default('')|urlencode }}" class="{{ 'on' if tab == 'search' }}">キーワード検索</a>
-    {% if ai_enabled %}
-    <a href="/ask?machine={{ machine|urlencode }}" class="{{ 'on' if tab == 'ask' }}">AIに相談</a>
-    {% endif %}
+    <a href="/ask?machine={{ machine|urlencode }}" class="{{ 'on' if tab == 'ask' }}">AIに相談{% if not ai_enabled %}<span class="muted" style="font-size:11px"> 未設定</span>{% endif %}</a>
     <a href="/library?machine={{ machine|urlencode }}" class="{{ 'on' if tab == 'library' }}">マニュアル一覧</a>
+    <a href="/settings" class="{{ 'on' if tab == 'settings' }}">設定</a>
   </nav>
 </header>
 <main>

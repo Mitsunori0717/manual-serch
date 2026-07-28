@@ -130,8 +130,11 @@ def ai_client(tmp_path: Path, manual_root: Path):
         yield test_client
 
 
-def test_ask_tab_is_hidden_without_an_api_key(client):
-    assert "AIに相談" not in client.get("/").text
+def test_ask_tab_is_always_visible_and_marked_when_unset(client):
+    """キーが無くてもタブは出す。出さないと設定画面にたどり着けないため。"""
+    body = client.get("/").text
+    assert "AIに相談" in body
+    assert "未設定" in body
 
 
 def test_ask_tab_appears_when_the_api_key_is_set(ai_client):
@@ -150,9 +153,10 @@ def test_ask_page_without_a_question_shows_the_guide(ai_client):
     assert "マニュアルの内容について相談する" in ai_client.get("/ask").text
 
 
-def test_ask_page_explains_when_ai_is_disabled(client):
+def test_ask_page_points_at_the_settings_screen_when_disabled(client):
     response = client.get("/ask")
-    assert "OPENAI_API_KEY" in response.text
+    assert "有効になっていません" in response.text
+    assert 'href="/settings"' in response.text
 
 
 def test_api_ask_returns_sources(ai_client):

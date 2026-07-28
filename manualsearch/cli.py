@@ -12,7 +12,7 @@ from pathlib import Path
 from . import db, library, search as search_mod
 from .analyze import analyze
 from .assistant import Assistant, AssistantError
-from .config import OCR_DPI, OCR_LANG, OCR_TEXT_THRESHOLD, Config
+from .config import OCR_DPI, OCR_LANG, OCR_TEXT_THRESHOLD, Config, load_env_file
 from .extract import extract_pdf, ocr_status
 from .indexer import default_workers, index_directory, index_file, iter_pdfs
 
@@ -454,6 +454,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # 環境変数を触らなくても .env に書くだけで設定できるようにする
+    load_env_file()
     args = build_parser().parse_args(argv)
     handlers = {
         "index": cmd_index,

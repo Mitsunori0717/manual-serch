@@ -38,7 +38,7 @@
   </table>
   <p class="muted" style="margin-bottom:0">
     全角・半角は自動でそろえるので、<kbd>Ｅ２０３</kbd> でも <kbd>E203</kbd> でも同じ結果になります。
-    {% if ai_enabled %}言葉で説明したいときは <a href="/ask?machine={{ machine|urlencode }}">AIに相談</a> をどうぞ。{% endif %}
+    言葉で説明したいときは <a href="/ask?machine={{ machine|urlencode }}">AIに相談</a> をどうぞ{% if not ai_enabled %}（<a href="/settings">設定</a>でAPIキーの登録が必要です）{% endif %}。
   </p>
 </div>
 
