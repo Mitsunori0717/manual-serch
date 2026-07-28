@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ q }} の検索結果{% endblock %}
+{% block content %}
+
+<p class="muted">
+  {%- if machine %}<span class="chip">{{ machine }}</span>{% endif -%}
+  「{{ q }}」の検索結果 <b>{{ "{:,}".format(result.total) }}</b> ページ
+  （{{ "%.0f"|format(result.took_ms) }} ms）
+</p>
+
+{% if result.slow_path %}
+<p class="notice muted">
+  2文字以下の語だけだと索引が使えず全ページ走査になります。3文字以上を含めると速くなります。
+</p>
+{% endif %}
+
+{% if not groups %}
+<div class="card">
+  <p>見つかりませんでした。</p>
+  <p class="muted" style="margin-bottom:0">
+    {% if machine %}機械を「すべて」に変えると他の機種のマニュアルも探します。{% endif %}
+    語を減らす、ひらがな/カタカナを変えてみる、型番のハイフンを外してみる、などもお試しください。
+    {% if ai_enabled %}<a href="/ask?q={{ q|urlencode }}&machine={{ machine|urlencode }}">この内容でAIに相談する</a>{% endif %}
+  </p>
+</div>
+{% endif %}
+
+{% for group in groups %}
+<div class="card">
+  <h2><a href="/file/{{ group.document_id }}#page={{ group.pages[0].page_no }}">{{ group.title }}</a></h2>
+  <div class="path">
+    {%- if group.machine %}<span class="chip">{{ group.machine }}</span>{% endif -%}
+    {{ group.path }} ・ このPDF内 {{ group.total_hits }} 件
+  </div>
+  {% for hit in group.pages %}
+  <div class="page-hit">
+    <a class="page-no" href="/file/{{ hit.document_id }}#page={{ hit.page_no }}">P.{{ hit.page_no }}</a>
+    <span>
+      {% if hit.section %}<span class="muted">{{ hit.section }}</span><br>{% endif %}
+      {{ hit.snippet|safe }}
+    </span>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+{% if total_pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}
+  <a href="/search?q={{ q|urlencode }}&machine={{ machine|urlencode }}&page={{ page - 1 }}">← 前へ</a>
+  {% endif %}
+  <span class="muted">{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a href="/search?q={{ q|urlencode }}&machine={{ machine|urlencode }}&page={{ page + 1 }}">次へ →</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

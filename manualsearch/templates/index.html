@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% if machines %}
+<div class="card">
+  <h2>使っている機械を選ぶ</h2>
+  <p class="muted">選ぶと、その機種のマニュアルだけを検索します。次回からも覚えています。</p>
+  <div class="machine-grid">
+    <a class="machine-card {{ 'on' if not machine }}" href="/search?machine=">
+      <b>すべて</b><span>{{ stats.documents }} 冊</span>
+    </a>
+    {% for item in machines %}
+    <a class="machine-card {{ 'on' if item.name == machine }}" href="/search?machine={{ item.name|urlencode }}">
+      <b>{{ item.name }}</b><span>{{ item.documents }} 冊 / {{ "{:,}".format(item.pages) }} ページ</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <ul class="stats">
+    <li><b>{{ "{:,}".format(stats.documents) }}</b>マニュアル</li>
+    <li><b>{{ "{:,}".format(stats.machines) }}</b>機種</li>
+    <li><b>{{ "{:,}".format(stats.indexed_pages) }}</b>検索対象ページ</li>
+    <li><b>{{ "{:,}".format(stats.sections) }}</b>抽出した章</li>
+    <li><b>{{ "{:,}".format(stats.codes) }}</b>エラーコード</li>
+    <li><b>{{ "{:,}".format(stats.ocr_pages) }}</b>OCRしたページ</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>検索のしかた</h2>
+  <table>
+    <tr><td><kbd>エラー 点滅</kbd></td><td>両方を含むページを探す（AND）</td></tr>
+    <tr><td><kbd>"冷却 ファン"</kbd></td><td>空白を含めてこの並びどおりに探す</td></tr>
+    <tr><td><kbd>ポンプ -旧型</kbd></td><td>「旧型」を含むページを除く</td></tr>
+  </table>
+  <p class="muted" style="margin-bottom:0">
+    全角・半角は自動でそろえるので、<kbd>Ｅ２０３</kbd> でも <kbd>E203</kbd> でも同じ結果になります。
+    {% if ai_enabled %}言葉で説明したいときは <a href="/ask?machine={{ machine|urlencode }}">AIに相談</a> をどうぞ。{% endif %}
+  </p>
+</div>
+
+<p class="muted">PDF置き場: {{ root }} ／ <a href="/library?machine={{ machine|urlencode }}">マニュアル一覧を見る</a></p>
+{% endblock %}

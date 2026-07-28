@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}マニュアル一覧{% endblock %}
+{% block content %}
+
+<p class="muted">
+  {%- if machine %}<span class="chip">{{ machine }}</span>{% endif -%}
+  {{ documents|length }} 件
+</p>
+
+<div class="card overflow">
+  <table>
+    <thead>
+      <tr>
+        <th>機種</th><th>タイトル</th><th>分類</th><th>ページ</th><th>OCR</th><th>メモ</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for doc in documents %}
+      <tr>
+        <td>
+          {% if doc['machine'] %}
+          <a href="/library?machine={{ doc['machine']|urlencode }}">{{ doc['machine'] }}</a>
+          {% else %}<span class="muted">-</span>{% endif %}
+        </td>
+        <td>
+          <a href="/file/{{ doc['id'] }}">{{ doc['title'] }}</a>
+          <div class="path">{{ doc['path'] }}</div>
+        </td>
+        <td>{{ doc['category'] or '' }}</td>
+        <td>{{ doc['page_count'] }}</td>
+        <td>{{ doc['ocr_pages'] or '' }}</td>
+        <td class="muted">{{ doc['note'] or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>一覧を編集する</h2>
+  <p class="muted">
+    機種・タイトル・分類・メモは、PDF置き場の <kbd>library.csv</kbd> で管理しています。
+    Excelで開いて編集し、<kbd>index</kbd> を実行し直すと画面に反映されます。
+  </p>
+  <table>
+    <tr><td><kbd>manualsearch library --init</kbd></td><td>今あるPDFから台帳の下書きを作る</td></tr>
+    <tr><td><kbd>manualsearch set &lt;パス&gt; --machine ロボドリル</kbd></td><td>1件だけその場で直す</td></tr>
+    <tr><td><kbd>manualsearch add &lt;PDF&gt; --machine ロボドリル</kbd></td><td>1冊追加して分析する</td></tr>
+  </table>
+  <p class="path" style="margin-bottom:0">台帳: {{ library_path }}</p>
+</div>
+{% endblock %}

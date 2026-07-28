@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}AIに相談{% endblock %}
+{% block form_action %}/ask{% endblock %}
+{% block placeholder %}例: ロボドリルでSV0417のアラームが出た{% endblock %}
+{% block submit_label %}相談{% endblock %}
+{% block content %}
+
+{% if ai_error %}
+<div class="card">
+  <p class="notice warn">{{ ai_error }}</p>
+  <p class="muted" style="margin-bottom:0">
+    キーワード検索は <a href="/search?machine={{ machine|urlencode }}">こちら</a> から使えます。
+  </p>
+</div>
+{% elif answer %}
+
+<div class="card">
+  <p class="muted">
+    {%- if machine %}<span class="chip">{{ machine }}</span>{% endif -%}
+    {{ answer.question }}
+  </p>
+  <div class="answer">{{ answer|cite }}</div>
+</div>
+
+{% if answer.sources %}
+<div class="card">
+  <h2>根拠にしたページ</h2>
+  <p class="muted">回答中の番号をクリックすると、その場所のPDFが開きます。</p>
+  {% for source in answer.sources %}
+  <div class="page-hit">
+    <a class="page-no" href="{{ source.url }}" target="_blank">[{{ source.number }}]</a>
+    <span>
+      <a href="{{ source.url }}" target="_blank">{{ source.title }}</a>
+      <span class="muted"> P.{{ source.page_no }}{% if source.machine %} ／ {{ source.machine }}{% endif %}</span>
+    </span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<p class="muted">
+  検索した語: {{ answer.keywords|join(' / ') if answer.keywords else 'なし' }}
+  ／ モデル: {{ answer.model }}
+  {%- if not answer.planned_by_llm %} ／ 検索語はAPIを使わず簡易抽出しました{% endif %}
+</p>
+<p class="notice warn muted">
+  回答はマニュアルの抜粋をもとにAIが書いたものです。作業前に必ず根拠ページを確認してください。
+</p>
+
+{% else %}
+
+<div class="card">
+  <h2>マニュアルの内容について相談する</h2>
+  <p class="muted">
+    上の欄に、困っていることをそのまま日本語で書いてください。関係しそうなページを
+    マニュアルから探して、そのページの内容だけを根拠に答えます。
+  </p>
+  <table>
+    <tr><td><kbd>ロボドリルでSV0417が出た</kbd></td><td>エラーの意味と対処を、根拠ページ付きで返します</td></tr>
+    <tr><td><kbd>主軸の潤滑油の交換手順は？</kbd></td><td>手順を箇条書きにまとめます</td></tr>
+    <tr><td><kbd>この機械の推奨点検周期</kbd></td><td>「機械」を選んでおくとその機種だけを見ます</td></tr>
+  </table>
+  <p class="muted" style="margin-bottom:0">
+    マニュアルに載っていないことは「見つかりませんでした」と答えます。推測では答えません。
+  </p>
+</div>
+
+{% endif %}
+{% endblock %}

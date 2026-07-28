@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# 索引データベース（再生成できるのでコミットしない）
+*.db
+*.db-wal
+*.db-shm
+index.db
+
+# 検索対象のPDF置き場（既定値）
+/manuals/

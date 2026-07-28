@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}マニュアル検索{% endblock %}</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --text: #1c2024;
+    --muted: #6b7280;
+    --line: #e2e5ea;
+    --accent: #1f6feb;
+    --accent-soft: #e8f0fe;
+    --mark-bg: #ffe08a;
+    --mark-text: #3d2c00;
+    --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --panel: #1c2024;
+      --text: #e6e8ea;
+      --muted: #9aa4b2;
+      --line: #2b3138;
+      --accent: #5b9dff;
+      --accent-soft: #1e2a3d;
+      --mark-bg: #6b5200;
+      --mark-text: #ffe9a8;
+      --warn: #fbbf24;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", Meiryo, system-ui, sans-serif;
+    line-height: 1.7;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    padding: 12px 20px 0;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .bar { max-width: 940px; margin: 0 auto; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .brand { font-weight: 700; white-space: nowrap; }
+  form.search { display: flex; gap: 8px; flex: 1 1 340px; }
+  .machine-field { display: flex; align-items: center; gap: 6px; }
+  .machine-field label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  input[type=search], input[type=text] {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 12px;
+    font-size: 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  select, button {
+    padding: 9px 12px;
+    font-size: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    max-width: 14em;
+  }
+  button { background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
+  nav.tabs { max-width: 940px; margin: 10px auto 0; display: flex; gap: 4px; }
+  nav.tabs a {
+    padding: 7px 16px;
+    font-size: 14px;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+  }
+  nav.tabs a.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  main { max-width: 940px; margin: 0 auto; padding: 24px 20px 64px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+  }
+  .card h2 { margin: 0 0 4px; font-size: 16px; }
+  .card h2 a { color: var(--text); }
+  .path { font-size: 12px; color: var(--muted); word-break: break-all; margin-bottom: 10px; }
+  .chip {
+    display: inline-block;
+    font-size: 12px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    margin-right: 6px;
+  }
+  .page-hit { display: flex; gap: 12px; padding: 8px 0; border-top: 1px dashed var(--line); font-size: 14px; }
+  .page-hit:first-of-type { border-top: none; }
+  .page-no { flex: 0 0 auto; min-width: 3em; font-variant-numeric: tabular-nums; font-weight: 600; }
+  mark { background: var(--mark-bg); color: var(--mark-text); border-radius: 3px; padding: 0 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .stats { display: flex; gap: 24px; flex-wrap: wrap; margin: 0; padding: 0; list-style: none; }
+  .stats li { font-size: 14px; color: var(--muted); }
+  .stats b { display: block; font-size: 22px; color: var(--text); font-variant-numeric: tabular-nums; }
+  .machine-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .machine-card {
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .machine-card:hover { border-color: var(--accent); text-decoration: none; }
+  .machine-card.on { border-color: var(--accent); background: var(--accent-soft); }
+  .machine-card b { display: block; font-size: 15px; }
+  .machine-card span { font-size: 12px; color: var(--muted); }
+  .pager { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 20px; }
+  .notice { border-left: 3px solid var(--accent); padding-left: 12px; }
+  .notice.warn { border-left-color: var(--warn); color: var(--warn); }
+  .answer { font-size: 15px; line-height: 1.9; }
+  .cite {
+    font-size: 12px;
+    vertical-align: super;
+    padding: 0 2px;
+    text-decoration: none;
+  }
+  kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 13px;
+  }
+  .overflow { overflow-x: auto; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <span class="brand"><a href="/">マニュアル検索</a></span>
+    <form class="search" action="{% block form_action %}/search{% endblock %}" method="get" role="search">
+      {% if machines %}
+      <div class="machine-field">
+        <label for="machine">機械</label>
+        <select id="machine" name="machine" onchange="this.form.submit()">
+          <option value="">すべて</option>
+          {% for item in machines %}
+          <option value="{{ item.name }}" {% if item.name == machine %}selected{% endif %}>{{ item.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <input type="search" name="q" value="{{ q|default('') }}"
+             placeholder="{% block placeholder %}型番・エラーコード・部品名など{% endblock %}" autofocus>
+      <button type="submit">{% block submit_label %}検索{% endblock %}</button>
+    </form>
+  </div>
+  <nav class="tabs">
+    <a href="/search?machine={{ machine|urlencode }}&q={{ q|default('')|urlencode }}" class="{{ 'on' if tab == 'search' }}">キーワード検索</a>
+    {% if ai_enabled %}
+    <a href="/ask?machine={{ machine|urlencode }}" class="{{ 'on' if tab == 'ask' }}">AIに相談</a>
+    {% endif %}
+    <a href="/library?machine={{ machine|urlencode }}" class="{{ 'on' if tab == 'library' }}">マニュアル一覧</a>
+  </nav>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>
