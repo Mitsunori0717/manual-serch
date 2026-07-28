@@ -1,0 +1,7 @@
+# Windowsのcmd.exeはCRLFを前提にしている。LFのままだとラベルやifブロックの
+# 解析に失敗して、ウィンドウが一瞬で閉じる。gitに改行を触らせない。
+*.bat -text
+
+*.sh  text eol=lf
+*.py  text eol=lf
+*.md  text

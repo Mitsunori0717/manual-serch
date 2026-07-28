@@ -1,95 +1,139 @@
 @echo off
-rem このファイルはUTF-8で保存されている。日本語Windowsの既定の文字コード(932)のままだと
-rem メッセージが文字化けするので、コンソールをUTF-8に切り替えてから先に進む。
+rem One-touch launcher for Windows. Just double-click this file.
+rem NOTE: keep this file UTF-8 + CRLF. cmd.exe misparses LF-only batch files.
+rem Switch the console to UTF-8 before printing any Japanese.
 chcp 65001 >nul
-set "PYTHONUTF8=1"
-set "PYTHONIOENCODING=utf-8"
-
-rem ワンタッチ起動（Windows）
-rem
-rem   このファイルをダブルクリックするだけ。
-rem
-rem 初回は仮想環境の作成と依存関係のインストールまで自動でやる。2回目以降は
-rem 増えたPDFだけ索引に足してから、ブラウザで検索画面を開く。
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
+rem 初回は仮想環境の作成と依存関係のインストールまで自動でやる。2回目以降は
+rem 増えたPDFだけ索引に足してから、ブラウザで検索画面を開く。
+
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
 if "%MANUAL_ROOT%"=="" set "MANUAL_ROOT=manuals"
 if "%MANUAL_DB%"==""   set "MANUAL_DB=index.db"
 if "%PORT%"==""        set "PORT=8000"
 if "%HOST%"==""        set "HOST=127.0.0.1"
 
+echo ============================================
+echo  マニュアル検索
+echo ============================================
+echo.
+
 rem ---------------------------------------------------------------- Python
-where py >nul 2>&1
-if %errorlevel%==0 (
-  set "PYTHON=py -3"
-) else (
-  where python >nul 2>&1
-  if !errorlevel!==0 (
-    set "PYTHON=python"
-  ) else (
-    echo [エラー] Python が見つかりません。
-    echo   https://www.python.org/downloads/ からインストールしてください。
-    echo   インストール時に "Add python.exe to PATH" にチェックを入れてください。
-    pause
-    exit /b 1
-  )
-)
+call :find_python
+if not defined PYTHON goto no_python
+echo 使用するPython: %PYTHON%
 
 rem ---------------------------------------------------------------- 仮想環境
-if not exist ".venv" (
-  echo [1/3] 初回セットアップ: 仮想環境を作ります（1〜2分かかります）
-  %PYTHON% -m venv .venv
-  if errorlevel 1 goto :failed
-)
+set "VPY=%~dp0.venv\Scripts\python.exe"
+if exist "%VPY%" goto have_venv
 
-set "VPY=.venv\Scripts\python.exe"
+echo [1/3] 初回セットアップ: 仮想環境を作ります（1〜2分かかります）
+%PYTHON% -m venv .venv
+if not exist "%VPY%" goto venv_failed
 
-if not exist ".venv\.requirements-stamp" (
-  echo [2/3] 依存パッケージをインストールします
-  "%VPY%" -m pip install --quiet --upgrade pip
-  "%VPY%" -m pip install --quiet -r requirements.txt
-  if errorlevel 1 goto :failed
-  echo ok> ".venv\.requirements-stamp"
-)
+:have_venv
+if exist ".venv\.requirements-stamp" goto have_deps
 
+echo [2/3] 依存パッケージをインストールします（数分かかることがあります）
+"%VPY%" -m pip install --upgrade pip
+"%VPY%" -m pip install -r requirements.txt
+if errorlevel 1 goto pip_failed
+type nul > ".venv\.requirements-stamp"
+
+:have_deps
 rem ---------------------------------------------------------------- OCR
 where tesseract >nul 2>&1
-if not %errorlevel%==0 (
-  echo [注意] OCR用の tesseract が見つかりません。スキャンしたPDFは検索できません。
-  echo        https://github.com/UB-Mannheim/tesseract/wiki からインストールし、
-  echo        言語データで Japanese を選んでください。
-)
+if not errorlevel 1 goto have_ocr
+echo.
+echo [注意] OCR用の tesseract が見つかりません。スキャンしたPDFは検索できません。
+echo        https://github.com/UB-Mannheim/tesseract/wiki からインストールし、
+echo        言語データで Japanese を選んでください。
+echo.
 
+:have_ocr
 rem ---------------------------------------------------------------- PDF置き場
 if not exist "%MANUAL_ROOT%" mkdir "%MANUAL_ROOT%"
 
 dir /s /b "%MANUAL_ROOT%\*.pdf" >nul 2>&1
-if errorlevel 1 (
-  echo [注意] %MANUAL_ROOT% にPDFがありません。
-  set /p "ANSWER=お試し用のサンプルを作りますか？ [y/N]: "
-  if /i "!ANSWER!"=="y" (
-    "%VPY%" scripts\make_sample_manuals.py "%MANUAL_ROOT%"
-  ) else (
-    echo 機種ごとのフォルダを作ってPDFを入れてから、もう一度実行してください。
-    pause
-    exit /b 0
-  )
-)
+if not errorlevel 1 goto do_index
 
+echo [注意] %MANUAL_ROOT% フォルダにPDFがありません。
+set "ANSWER=n"
+set /p "ANSWER=お試し用のサンプルを作りますか？ [y/N]: "
+if /i not "!ANSWER!"=="y" goto need_pdf
+"%VPY%" scripts\make_sample_manuals.py "%MANUAL_ROOT%"
+
+:do_index
 rem ---------------------------------------------------------------- 索引と起動
+echo.
 echo [3/3] 索引を更新します（増えたPDFだけ読みます）
 "%VPY%" -m manualsearch index "%MANUAL_ROOT%"
-if errorlevel 1 goto :failed
+if errorlevel 1 goto index_failed
 
 echo.
-echo 検索画面: http://%HOST%:%PORT%/
+echo ============================================
+echo  検索画面: http://%HOST%:%PORT%/
+echo  終了するには、この画面で Ctrl+C を押すか
+echo  ウィンドウを閉じてください。
+echo ============================================
 start "" "http://%HOST%:%PORT%/"
 "%VPY%" -m manualsearch serve "%MANUAL_ROOT%" --host "%HOST%" --port "%PORT%"
-goto :eof
+goto done
 
-:failed
+rem ---------------------------------------------------------------- 異常終了
+:no_python
+echo [エラー] Python 3.10以上が見つかりません。
 echo.
-echo セットアップに失敗しました。上のメッセージを確認してください。
+echo   1. https://www.python.org/downloads/ からインストールしてください。
+echo   2. インストール画面の下にある
+echo      「Add python.exe to PATH」に必ずチェックを入れてください。
+echo   3. インストール後、このファイルをもう一度ダブルクリックしてください。
+goto done
+
+:venv_failed
+echo [エラー] 仮想環境を作れませんでした。
+echo   .venv フォルダを削除してから、もう一度実行してみてください。
+goto done
+
+:pip_failed
+echo [エラー] 依存パッケージのインストールに失敗しました。
+echo   社内プロキシがある場合は、管理者に pip の設定を確認してください。
+goto done
+
+:index_failed
+echo [エラー] 索引の作成に失敗しました。上のメッセージを確認してください。
+goto done
+
+:need_pdf
+echo.
+echo %MANUAL_ROOT% フォルダの中に、機種ごとのフォルダを作ってPDFを入れてから、
+echo もう一度このファイルをダブルクリックしてください。
+echo.
+echo   例）manuals\ロボドリル\操作説明書.pdf
+goto done
+
+:done
+echo.
 pause
-exit /b 1
+exit /b
+
+rem ---------------------------------------------------------------- 補助
+rem py ランチャー、python、python3 の順に試し、実際に起動できて
+rem 3.10以上のものだけを採用する（Microsoft Store のダミーを弾くため）。
+:find_python
+set "PYTHON="
+call :try_python "py -3"
+if defined PYTHON exit /b
+call :try_python "python"
+if defined PYTHON exit /b
+call :try_python "python3"
+exit /b
+
+:try_python
+%~1 -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>&1
+if errorlevel 1 exit /b
+set "PYTHON=%~1"
+exit /b
