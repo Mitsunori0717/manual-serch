@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
-from . import db, library, search as search_mod
+from . import __version__, db, library, search as search_mod
 from .assistant import Assistant, AssistantError, link_citations
 from .config import ENV_FILENAME, AiConfig, Config, mask_secret, save_env_file
 from .extract import ocr_status
@@ -80,6 +80,7 @@ def create_app(config: Config) -> FastAPI:
             "ai_enabled": app.state.assistant is not None,
             "ai_configurable": True,
             "tab": tab,
+            "version": __version__,
             "root": str(config.root),
         }
 
