@@ -120,17 +120,18 @@ def fallback_keywords(question: str) -> list[str]:
 
 
 def _build_client(config: AiConfig):
-    if not config.api_key:
+    if not config.enabled:
         raise AssistantError(
-            "OPENAI_API_KEY が設定されていません。"
-            "環境変数に APIキーを入れてから起動してください。"
+            "APIキーが設定されていません。設定画面でキーを登録するか、"
+            "ローカルのLLMサーバーを使う場合は接続先を指定してください。"
         )
     try:
         from openai import OpenAI
     except ImportError as exc:  # pragma: no cover - 依存が無い環境
         raise AssistantError("openai パッケージが入っていません（pip install openai）") from exc
 
-    kwargs = {"api_key": config.api_key, "timeout": config.timeout}
+    # Ollama などのローカルサーバーはキーを見ないが、SDKは空を許さないので埋める
+    kwargs = {"api_key": config.api_key or "local", "timeout": config.timeout}
     if config.base_url:
         kwargs["base_url"] = config.base_url
     return OpenAI(**kwargs)
@@ -155,25 +156,28 @@ class Assistant:
     # ------------------------------------------------------------------ 検索語
     def plan_keywords(self, question: str) -> tuple[list[str], bool]:
         """質問文から検索語を作る。``(検索語, LLMを使えたか)`` を返す。"""
-        try:
-            response = self.client.chat.completions.create(
-                model=self.config.model,
-                temperature=0,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": _PLANNER_SYSTEM},
-                    {"role": "user", "content": question},
-                ],
-            )
-            payload = json.loads(response.choices[0].message.content or "{}")
-            queries = [str(q).strip() for q in payload.get("queries", []) if str(q).strip()]
-        except AssistantError:
-            raise
-        except Exception:
-            # 検索語作りで失敗しても、簡易抽出で検索まではたどり着かせる
-            return fallback_keywords(question), False
+        messages = [
+            {"role": "system", "content": _PLANNER_SYSTEM},
+            {"role": "user", "content": question},
+        ]
 
-        return (queries[:4], True) if queries else (fallback_keywords(question), False)
+        # JSONモードに対応していないローカルサーバーもあるので、
+        # 弾かれたら指定なしでもう一度だけ試す。
+        for kwargs in ({"response_format": {"type": "json_object"}}, {}):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.config.model, temperature=0, messages=messages, **kwargs
+                )
+                queries = _parse_queries(response.choices[0].message.content or "")
+            except AssistantError:
+                raise
+            except Exception:
+                continue
+            if queries:
+                return queries[:4], True
+
+        # 検索語作りで失敗しても、簡易抽出で検索まではたどり着かせる
+        return fallback_keywords(question), False
 
     # ------------------------------------------------------------------ 根拠集め
     def collect_sources(
@@ -273,6 +277,28 @@ class Assistant:
             model=self.config.model,
             planned_by_llm=planned_by_llm,
         )
+
+
+_JSON_BLOCK = re.compile(r"\{.*\}", re.S)
+
+
+def _parse_queries(content: str) -> list[str]:
+    """モデルの返答から検索語の配列を取り出す。
+
+    小さいモデルは ```json … ``` で囲んだり前後に説明を付けたりするので、
+    最初のJSONらしき塊を拾ってから読む。
+    """
+    match = _JSON_BLOCK.search(content)
+    if not match:
+        return []
+    try:
+        payload = json.loads(match.group())
+    except json.JSONDecodeError:
+        return []
+    queries = payload.get("queries") if isinstance(payload, dict) else None
+    if not isinstance(queries, list):
+        return []
+    return [str(q).strip() for q in queries if str(q).strip()]
 
 
 def _format_prompt(question: str, sources: list[Source], machine: str | None = None) -> str:

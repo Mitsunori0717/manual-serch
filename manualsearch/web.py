@@ -207,6 +207,8 @@ def create_app(config: Config) -> FastAPI:
         request: Request,
         api_key: str = Form(""),
         model: str = Form(""),
+        base_url: str = Form(""),
+        use_local: str = Form(""),
         clear: str = Form(""),
         conn: sqlite3.Connection = Depends(get_conn),
     ):
@@ -217,6 +219,13 @@ def create_app(config: Config) -> FastAPI:
             values["OPENAI_API_KEY"] = api_key.strip()
         if model.strip():
             values["MANUAL_AI_MODEL"] = model.strip()
+        if clear:
+            values["OPENAI_BASE_URL"] = ""
+        elif use_local:
+            # 接続先が空欄なら Ollama の既定を入れておく
+            values["OPENAI_BASE_URL"] = base_url.strip() or "http://localhost:11434/v1"
+        else:
+            values["OPENAI_BASE_URL"] = ""
 
         if values:
             save_env_file(values, app.state.env_path)

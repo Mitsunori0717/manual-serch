@@ -221,3 +221,35 @@ def test_clearing_a_machine_from_the_screen_works(client):
 
 def test_unknown_document_ids_are_ignored(client):
     assert client.post("/library", data={"machine_99999": "ROBODRILL"}).status_code == 200
+
+
+# ------------------------------------------------------- ローカルAIサーバー
+def test_local_server_can_be_enabled_without_an_api_key(client, tmp_path: Path):
+    client.post("/settings", data={"use_local": "1", "model": "qwen2.5:14b-instruct"})
+
+    body = client.get("/settings").text
+    assert "有効" in body
+    assert "ローカル" in body
+    # 接続先が空欄なら Ollama の既定を入れる
+    assert "http://localhost:11434/v1" in (tmp_path / ".env").read_text(encoding="utf-8")
+
+
+def test_a_custom_local_address_is_kept(client, tmp_path: Path):
+    client.post("/settings", data={"use_local": "1", "base_url": "http://192.168.1.50:11434/v1"})
+    assert "http://192.168.1.50:11434/v1" in client.get("/settings").text
+
+
+def test_turning_the_local_option_off_returns_to_openai(client, tmp_path: Path):
+    client.post("/settings", data={"use_local": "1"})
+    client.post("/settings", data={"api_key": "sk-test-123456789012"})
+
+    # 接続先が消えていること（画面の入力欄のプレースホルダは別物なので、保存先で確かめる）
+    env = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "OPENAI_BASE_URL" not in env
+    assert "接続先: OpenAI" in client.get("/settings").text.replace("\n", "").replace("  ", "")
+
+
+def test_clearing_also_removes_the_local_address(client):
+    client.post("/settings", data={"use_local": "1"})
+    client.post("/settings", data={"clear": "1"})
+    assert "無効" in client.get("/settings").text

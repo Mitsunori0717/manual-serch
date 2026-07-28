@@ -101,7 +101,15 @@ class AiConfig:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.api_key)
+        # ローカルのLLMサーバー（Ollama など）はキーを要求しないので、
+        # 接続先が指定されていればキーが空でも使えるものとして扱う。
+        return bool(self.api_key or self.base_url)
+
+    @property
+    def is_local(self) -> bool:
+        return bool(self.base_url) and any(
+            host in self.base_url for host in ("localhost", "127.0.0.1", "0.0.0.0", "::1")
+        )
 
     @classmethod
     def from_env(cls) -> "AiConfig":

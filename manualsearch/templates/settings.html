@@ -11,7 +11,9 @@
   <p class="muted">
     現在の状態:
     {% if ai.enabled %}
-    <b style="color:var(--accent)">有効</b>（モデル: {{ ai.model }} ／ キー: {{ api_key_masked }}）
+    <b style="color:var(--accent)">有効</b>
+    （接続先: {% if ai.is_local %}<b>ローカル</b> {{ ai.base_url }}{% elif ai.base_url %}{{ ai.base_url }}{% else %}OpenAI{% endif %}
+    ／ モデル: {{ ai.model }}{% if api_key_masked %} ／ キー: {{ api_key_masked }}{% endif %}）
     {% else %}
     <b class="warn-cell">無効</b> — APIキーが登録されていません
     {% endif %}
@@ -35,7 +37,24 @@
         <td>
           <input type="text" id="model" name="model" value="{{ ai.model }}" style="width:100%">
           <div class="muted" style="font-size:12px">
-            迷ったらこのままで構いません。安く速いモデルが既定です。
+            OpenAIなら <kbd>gpt-4o-mini</kbd>。ローカルなら <kbd>qwen2.5:14b-instruct</kbd> など、
+            サーバーに入れたモデル名を入れます。
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <th>接続先</th>
+        <td>
+          <label style="display:block">
+            <input type="checkbox" name="use_local" value="1" id="use_local"
+                   {% if ai.base_url %}checked{% endif %}>
+            ローカルのAIサーバーを使う（社外にデータを出さない）
+          </label>
+          <input type="text" name="base_url" style="width:100%;margin-top:6px"
+                 value="{{ ai.base_url }}" placeholder="http://localhost:11434/v1">
+          <div class="muted" style="font-size:12px">
+            Ollama を使う場合は <kbd>http://localhost:11434/v1</kbd>（空欄ならこれを使います）。
+            チェックを外すとOpenAIに接続します。ローカルの場合、APIキーは不要です。
           </div>
         </td>
       </tr>
@@ -54,9 +73,15 @@
   {% endif %}
 
   <p class="notice warn muted" style="margin-top:16px;margin-bottom:0">
+    {% if ai.is_local %}
+    ローカル接続なので、マニュアルの内容は社外に出ません。回答の速さと品質は
+    お使いのPCの性能とモデルの大きさで決まります。
+    {% else %}
     有効にすると、質問に関係するマニュアルのページ本文がOpenAIのサーバーへ送られます
     （マニュアル全体は送りません）。社外に出せない内容を含む場合は、社内で利用可否を
     確認してから使ってください。利用量に応じてOpenAIの料金がかかります。
+    社外に出したくない場合は、上の「ローカルのAIサーバーを使う」をお試しください。
+    {% endif %}
   </p>
 </div>
 

@@ -154,8 +154,45 @@ def test_empty_question_is_rejected(conn):
 
 def test_missing_api_key_is_reported_clearly(conn):
     assistant = Assistant(AiConfig(api_key=""))
-    with pytest.raises(AssistantError, match="OPENAI_API_KEY"):
+    with pytest.raises(AssistantError, match="APIキーが設定されていません"):
         assistant.ask(conn, "エラーコードについて")
+
+
+def test_a_local_server_needs_no_api_key(conn):
+    """Ollama などはキーを見ないので、接続先だけで有効として扱う。"""
+    config = AiConfig(api_key="", base_url="http://localhost:11434/v1")
+    assert config.enabled is True
+    assert config.is_local is True
+
+
+def test_a_remote_base_url_is_not_treated_as_local():
+    assert AiConfig(api_key="sk-x", base_url="https://api.example.com/v1").is_local is False
+
+
+def test_planner_retries_without_json_mode(conn):
+    """JSONモードに対応していないローカルサーバーでも検索語を作れること。"""
+
+    class PickyCompletions(FakeCompletions):
+        def create(self, **kwargs):
+            if "response_format" in kwargs:
+                raise RuntimeError("this server does not support response_format")
+            return super().create(**kwargs)
+
+    assistant, client = make_assistant([])
+    client.chat.completions = PickyCompletions(
+        ['ここが検索語です:\n```json\n{"queries": ["冷却ファン"]}\n```']
+    )
+
+    keywords, by_llm = assistant.plan_keywords("ファンが止まった")
+    assert keywords == ["冷却ファン"]
+    assert by_llm is True
+
+
+def test_json_wrapped_in_prose_is_still_parsed():
+    from manualsearch.assistant import _parse_queries
+
+    assert _parse_queries('答えます {"queries": ["ポンプ"]} 以上です') == ["ポンプ"]
+    assert _parse_queries("JSONではありません") == []
 
 
 # --------------------------------------------------------------------- 出典
