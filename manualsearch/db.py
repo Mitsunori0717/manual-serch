@@ -242,7 +242,7 @@ def delete_document(conn: sqlite3.Connection, doc_id: int) -> None:
 
 def known_documents(conn: sqlite3.Connection) -> dict[str, sqlite3.Row]:
     """相対パス → documents の行。差分更新の判定に使う。"""
-    rows = conn.execute("SELECT id, path, title, size, mtime FROM documents").fetchall()
+    rows = conn.execute("SELECT id, path, title, machine, size, mtime FROM documents").fetchall()
     return {row["path"]: row for row in rows}
 
 

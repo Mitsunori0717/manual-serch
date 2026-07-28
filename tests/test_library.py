@@ -157,3 +157,58 @@ def test_index_file_refuses_a_pdf_outside_the_root(tmp_path: Path, manual_root: 
 
     assert analysis is None
     assert "PDF置き場" in (error or "")
+
+
+def test_reindexing_keeps_a_machine_that_was_detected_from_the_pdf(tmp_path: Path, manual_root: Path):
+    """台帳に機種が書かれていなくても、2回目の index で機種を消さないこと。
+
+    start.bat / start.sh は起動のたびに index を通るため、ここで消えると
+    2回目の起動で機種の選択肢が全部なくなってしまう。
+    """
+    from conftest import make_pdf
+
+    # 機種フォルダを作らず、ルート直下に置く（フォルダ名から機種を取れない状況）
+    make_pdf(
+        manual_root / "FANUC ROBODORILL 取扱説明書.pdf",
+        [["第1章 概要", "アラーム SV0417 が発生した場合の処置を説明します。"]],
+    )
+
+    conn = db.connect(tmp_path / "index.db")
+    try:
+        index_directory(conn, manual_root, ocr="never", workers=1)
+        first = conn.execute(
+            "SELECT machine FROM documents WHERE path = ?", ("FANUC ROBODORILL 取扱説明書.pdf",)
+        ).fetchone()["machine"]
+        assert first == "FANUC ROBODORILL"  # タイトル無しPDFなのでファイル名から
+
+        # PDFを触っていないので読み飛ばされる経路を通る
+        report = index_directory(conn, manual_root, ocr="never", workers=1)
+        assert report.processed == 0
+
+        second = conn.execute(
+            "SELECT machine FROM documents WHERE path = ?", ("FANUC ROBODORILL 取扱説明書.pdf",)
+        ).fetchone()["machine"]
+        assert second == first
+    finally:
+        conn.close()
+
+
+def test_the_library_still_wins_over_the_detected_machine(tmp_path: Path, manual_root: Path):
+    from conftest import make_pdf
+
+    make_pdf(manual_root / "FANUC ROBODORILL 取扱説明書.pdf", [["第1章 概要", "本文がここに入ります。"]])
+    conn = db.connect(tmp_path / "index.db")
+    try:
+        index_directory(conn, manual_root, ocr="never", workers=1)
+        write_csv(
+            manual_root / "library.csv",
+            "path,machine\nFANUC ROBODORILL 取扱説明書.pdf,ROBODORILL\n",
+        )
+        index_directory(conn, manual_root, ocr="never", workers=1)
+
+        row = conn.execute(
+            "SELECT machine FROM documents WHERE path = ?", ("FANUC ROBODORILL 取扱説明書.pdf",)
+        ).fetchone()
+        assert row["machine"] == "ROBODORILL"
+    finally:
+        conn.close()

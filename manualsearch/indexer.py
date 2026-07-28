@@ -99,13 +99,15 @@ def index_directory(
         stat = path.stat()
         if not force and not _needs_reindex(row, stat):
             report.skipped += 1
-            # 本文は読み直さないが、台帳を書き換えただけの変更はここで拾う
+            # 本文は読み直さないが、台帳を書き換えただけの変更はここで拾う。
+            # 台帳に書いていない項目で既存の値を消さないこと。機種は取り込み時に
+            # 本文から推定していることがあり、ここで空にすると2回目の実行で消える。
             entry = entry_for(entries, rel)
             if db.update_metadata(
                 conn,
                 int(row["id"]),
                 title=entry.title or row["title"],
-                machine=entry.machine,
+                machine=entry.machine or row["machine"],
                 category=entry.category,
                 tags=entry.tags,
                 note=entry.note,

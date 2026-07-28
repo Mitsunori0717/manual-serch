@@ -171,24 +171,55 @@ def detect_codes(pages: list[str], *, max_codes: int = 300) -> list[CodeHit]:
     return hits
 
 
+# 機種名として画面に出せる長さの上限。これを超えるものは選択肢にならない。
+_MAX_MACHINE_LEN = 30
+
+# 「FANUC ROBODRILL α-DiB5ADV series ...」の先頭にある英字だけの語
+_BRAND_WORD = re.compile(r"^[A-Za-z][A-Za-z]+$")
+
+
+def brand_prefix(title: str, max_words: int = 3) -> str:
+    """タイトル先頭の英字だけの語をつないで機種名にする。
+
+    メーカーのマニュアルは ``FANUC ROBODRILL α-DiB5ADV series …`` のように、
+    ブランド名と機種名が先頭に来て、そのあとに型番の羅列が続く。タイトル全体は
+    100文字を超えることもあり選択肢にならないので、先頭の英単語だけを採る。
+    型番（数字を含む語）や日本語が出てきた時点で打ち切る。
+    """
+    words: list[str] = []
+    for word in normalize_line(title).split():
+        if len(words) >= max_words or not _BRAND_WORD.match(word):
+            break
+        words.append(word)
+    return " ".join(words)
+
+
 def suggest_machines(result: ExtractResult, rel_path: str, codes: list[CodeHit]) -> list[str]:
     """機種名の候補を、確からしい順に返す。
 
-    フォルダ名 → ファイル名の型番 → 表紙に多く出る型番、の順で見る。
-    ここで出すのはあくまで候補で、確定は library.csv か ``set`` コマンドで行う。
+    フォルダ名 → タイトル先頭のブランド名 → ファイル名の型番 → 表紙の型番、
+    の順で見る。ここで出すのはあくまで候補で、確定は library.csv か
+    ``set`` コマンドで行う。
     """
     candidates: list[str] = []
 
     def add(value: str) -> None:
         value = normalize_line(value).strip()
-        if value and value not in candidates:
+        if value and value not in candidates and len(value) <= _MAX_MACHINE_LEN:
             candidates.append(value)
 
     if "/" in rel_path:
         add(rel_path.split("/")[0])
 
-    # 「P-100_取扱説明書」のような名前から型番だけを切り出す
+    # PDFのタイトルを先に見る。ファイル名は手で付けるぶん綴りが揺れやすく、
+    # メーカーが入れたメタデータのほうが正確なことが多いため
+    # （例: ファイル名 ROBODORILL / メタデータ ROBODRILL ← こちらが正）。
+    # 同じ機種のマニュアルが同じ名前でまとまる利点もある。
     stem = rel_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    add(brand_prefix(result.title))
+    add(brand_prefix(stem))
+
+    # 「P-100_取扱説明書」のような名前から型番だけを切り出す
     for match in _MODEL_CODE.finditer(re.sub(r"[_\s]+", " ", stem)):
         code = match.group("code")
         if any(ch.isdigit() for ch in code):

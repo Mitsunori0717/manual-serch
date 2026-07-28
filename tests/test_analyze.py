@@ -7,6 +7,7 @@ from pathlib import Path
 from conftest import make_pdf
 from manualsearch.analyze import (
     analyze,
+    brand_prefix,
     detect_codes,
     detect_headings,
     map_sections_to_pages,
@@ -111,3 +112,45 @@ def test_analysis_of_a_real_pdf(tmp_path: Path):
     assert analysis.section_of_page[2] == "第2章異常時の処置"
     assert "E203" in analysis.error_codes
     assert analysis.machine_candidates[0] == "ロボドリル"
+
+
+def test_brand_prefix_takes_the_leading_english_words():
+    title = (
+        "FANUC ROBODRILL α-DiB5ADV series α-D14SiB5ADV/D14MiB5ADV "
+        "(制御装置:FANUC Series 31i-B5)取扱説明書(基本編)"
+    )
+    assert brand_prefix(title) == "FANUC ROBODRILL"
+
+
+def test_brand_prefix_stops_at_a_model_code():
+    assert brand_prefix("P-100 循環ポンプ取扱説明書") == ""
+
+
+def test_brand_prefix_stops_at_japanese():
+    assert brand_prefix("ロボドリル 操作説明書") == ""
+
+
+def test_machine_uses_the_metadata_spelling_over_the_filename():
+    """ファイル名の綴りが揺れていても、PDFのタイトル側の正しい綴りでまとめる。"""
+    result = _result(["本文"])
+    result.title = "FANUC ROBODRILL α-DiB5ADV series 取扱説明書"
+
+    # ファイル名は ROBODORILL と打ち間違えている
+    machines = suggest_machines(result, "FANUC ROBODORILL α-DiB5ADVseries取扱説明書.pdf", [])
+    assert machines[0] == "FANUC ROBODRILL"
+
+
+def test_the_filename_is_used_when_the_pdf_has_no_title():
+    result = _result(["本文"])
+    result.title = "FANUC ROBODORILL α-DiB5ADVseries取扱説明書"  # メタデータ無しならファイル名が入る
+
+    assert suggest_machines(result, "FANUC ROBODORILL α-DiB5ADVseries取扱説明書.pdf", [])[0] == (
+        "FANUC ROBODORILL"
+    )
+
+
+def test_an_unusably_long_title_is_not_offered_as_a_machine_name():
+    result = _result(["本文"])
+    result.title = "あ" * 80
+
+    assert result.title not in suggest_machines(result, "manual.pdf", [])

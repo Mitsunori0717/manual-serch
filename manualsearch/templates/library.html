@@ -11,7 +11,10 @@
   <table>
     <thead>
       <tr>
-        <th>機種</th><th>タイトル</th><th>分類</th><th>ページ</th><th>OCR</th><th>メモ</th>
+        <th>機種</th><th>タイトル</th><th>分類</th><th>ページ</th>
+        <th title="本文を取り出せたページ数／全ページ数">本文</th>
+        <th title="テキストが無くてOCRにかけたページ数">OCR</th>
+        <th>メモ</th>
       </tr>
     </thead>
     <tbody>
@@ -28,6 +31,13 @@
         </td>
         <td>{{ doc['category'] or '' }}</td>
         <td>{{ doc['page_count'] }}</td>
+        {% if doc['page_count'] and doc['indexed_pages'] * 2 < doc['page_count'] %}
+        <td class="warn-cell" title="本文をほとんど取り出せていません。文字が画像で入っている可能性が高いので、OCRを有効にして索引を作り直してください。">
+          {{ doc['indexed_pages'] }} ⚠
+        </td>
+        {% else %}
+        <td>{{ doc['indexed_pages'] }}</td>
+        {% endif %}
         <td>{{ doc['ocr_pages'] or '' }}</td>
         <td class="muted">{{ doc['note'] or '' }}</td>
       </tr>
@@ -38,6 +48,12 @@
 
 <div class="card">
   <h2>一覧を編集する</h2>
+  <p class="muted">
+    「本文」の列は、そのPDFから文字を取り出せたページ数です。ページ数とほぼ同じなら
+    検索できています。<span class="warn-cell">⚠</span> が付いているPDFは文字が画像として
+    入っているので、OCRを有効にして索引を作り直してください
+    （<kbd>manualsearch index manuals --ocr force</kbd>）。
+  </p>
   <p class="muted">
     機種・タイトル・分類・メモは、PDF置き場の <kbd>library.csv</kbd> で管理しています。
     Excelで開いて編集し、<kbd>index</kbd> を実行し直すと画面に反映されます。

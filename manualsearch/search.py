@@ -190,9 +190,12 @@ def list_documents(
     limit: int = 1000,
     offset: int = 0,
 ) -> list[sqlite3.Row]:
-    where, params = ("WHERE machine = ?", [machine]) if machine else ("", [])
+    where, params = ("WHERE d.machine = ?", [machine]) if machine else ("", [])
+    # indexed_pages は「本文を取り出せたページ数」。page_count との差が大きければ
+    # 文字が画像で入っている＝OCRが必要、と一覧の上で判断できる。
     return conn.execute(
-        f"SELECT * FROM documents {where} ORDER BY machine, path LIMIT ? OFFSET ?",
+        "SELECT d.*, (SELECT COUNT(*) FROM pages p WHERE p.document_id = d.id) AS indexed_pages "
+        f"FROM documents d {where} ORDER BY d.machine, d.path LIMIT ? OFFSET ?",
         [*params, limit, offset],
     ).fetchall()
 
