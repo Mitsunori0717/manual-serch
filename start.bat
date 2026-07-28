@@ -1,4 +1,10 @@
 @echo off
+rem このファイルはUTF-8で保存されている。日本語Windowsの既定の文字コード(932)のままだと
+rem メッセージが文字化けするので、コンソールをUTF-8に切り替えてから先に進む。
+chcp 65001 >nul
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
+
 rem ワンタッチ起動（Windows）
 rem
 rem   このファイルをダブルクリックするだけ。
