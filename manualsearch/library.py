@@ -25,6 +25,8 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 
+from .textnorm import normalize_line
+
 COLUMNS = ["path", "machine", "title", "category", "tags", "note"]
 
 # 機種列の別名。社内でどちらの呼び方をしていても読めるようにする。
@@ -105,9 +107,46 @@ def save(path: Path, entries: list[LibraryEntry]) -> None:
             )
 
 
+# フォルダ名の末尾によく付く、機種名としては不要な語。
+# 「ロボドリルマニュアル」→「ロボドリル」のように落として選択肢を読みやすくする。
+# 「資料」「関係」のような多義的な語は入れない。「技術資料」→「技術」のように
+# 意味の違う名前になってしまうため。
+_MACHINE_SUFFIXES = (
+    "マニュアル",
+    "取扱説明書",
+    "保守説明書",
+    "説明書",
+    "取説",
+    "manuals",
+    "manual",
+    "documents",
+    "document",
+    "docs",
+)
+
+# 語を落としたあとに残る区切り文字
+_MACHINE_TRIM = " 　_-‐－・:："
+
+
+def strip_machine_suffix(name: str) -> str:
+    """フォルダ名の末尾から「マニュアル」などを落とす。
+
+    落とすと空になる場合（フォルダ名が「マニュアル」そのものなど）は、
+    手掛かりが消えてしまうので元の名前を残す。
+    """
+    text = normalize_line(name).strip(_MACHINE_TRIM)
+    lowered = text.lower()
+    for suffix in _MACHINE_SUFFIXES:
+        if len(text) > len(suffix) and lowered.endswith(suffix.lower()):
+            trimmed = text[: len(text) - len(suffix)].strip(_MACHINE_TRIM)
+            if trimmed:
+                return trimmed
+    return text
+
+
 def machine_from_path(rel_path: str) -> str:
     """第1階層のフォルダ名を機種名として使う（台帳が無いときの既定）。"""
-    return rel_path.split("/")[0] if "/" in rel_path else ""
+    return strip_machine_suffix(rel_path.split("/")[0]) if "/" in rel_path else ""
 
 
 def scaffold(

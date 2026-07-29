@@ -212,3 +212,79 @@ def test_the_library_still_wins_over_the_detected_machine(tmp_path: Path, manual
         assert row["machine"] == "ROBODORILL"
     finally:
         conn.close()
+
+
+# --------------------------------------------------- フォルダ名から機種名を作る
+def test_manual_suffix_is_dropped_from_the_machine_name():
+    """「ロボドリルマニュアル」のようなフォルダ名を選択肢に出すとき、末尾を落とす。"""
+    assert library.machine_from_path("ロボドリルマニュアル/a.pdf") == "ロボドリル"
+    assert library.machine_from_path("CRXマニュアル/a.pdf") == "CRX"
+    assert library.machine_from_path("FIELD マニュアル/a.pdf") == "FIELD"
+
+
+def test_other_documentation_words_are_dropped_too():
+    assert library.strip_machine_suffix("α-D21取扱説明書") == "α-D21"
+    assert library.strip_machine_suffix("ポンプ取説") == "ポンプ"
+    assert library.strip_machine_suffix("ROBODRILL manual") == "ROBODRILL"
+    assert library.strip_machine_suffix("CRX_Documents") == "CRX"
+
+
+def test_a_folder_named_only_manual_keeps_its_name():
+    """落とすと空になる場合は、手掛かりが消えるので元のままにする。"""
+    assert library.strip_machine_suffix("マニュアル") == "マニュアル"
+    assert library.strip_machine_suffix("manual") == "manual"
+
+
+def test_ambiguous_words_are_not_dropped():
+    """「資料」「関係」まで落とすと、意味の違う名前になってしまう。"""
+    assert library.strip_machine_suffix("技術資料") == "技術資料"
+    assert library.strip_machine_suffix("資産関係") == "資産関係"
+
+
+def test_a_plain_machine_folder_is_unchanged():
+    assert library.machine_from_path("ロボドリル/a.pdf") == "ロボドリル"
+    assert library.machine_from_path("a.pdf") == ""
+
+
+def test_the_machine_name_is_cleaned_up_when_indexing(tmp_path: Path, manual_root: Path):
+    """取り込み時にも末尾が落ちること。"""
+    from conftest import make_pdf
+
+    make_pdf(
+        manual_root / "ロボドリルマニュアル" / "取扱説明書" / "α-D21.pdf",
+        [["第1章 概要", "アラーム SV0417 が発生した場合の処置を説明します。"]],
+    )
+
+    conn = db.connect(tmp_path / "index.db")
+    try:
+        index_directory(conn, manual_root, ocr="never", workers=1)
+        assert "ロボドリル" in {m.name for m in list_machines(conn)}
+        assert "ロボドリルマニュアル" not in {m.name for m in list_machines(conn)}
+        assert search(conn, "SV0417", machine="ロボドリル").total == 1
+    finally:
+        conn.close()
+
+
+def test_reindexing_updates_machine_names_that_were_stored_before(
+    tmp_path: Path, manual_root: Path
+):
+    """すでに「ロボドリルマニュアル」で登録済みでも、再実行で整うこと。"""
+    from conftest import make_pdf
+
+    rel = "ロボドリルマニュアル/α-D21.pdf"
+    make_pdf(manual_root / rel, [["第1章 概要", "アラーム SV0417 の処置を説明します。"]])
+
+    conn = db.connect(tmp_path / "index.db")
+    try:
+        index_directory(conn, manual_root, ocr="never", workers=1)
+        # 古い版で登録されていた状態を作る
+        conn.execute("UPDATE documents SET machine = 'ロボドリルマニュアル' WHERE path = ?", (rel,))
+        conn.commit()
+
+        report = index_directory(conn, manual_root, ocr="never", workers=1)
+
+        assert report.processed == 0  # 本文は読み直していない
+        assert report.relabeled == 1
+        assert "ロボドリル" in {m.name for m in list_machines(conn)}
+    finally:
+        conn.close()
