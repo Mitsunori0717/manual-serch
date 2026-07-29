@@ -39,11 +39,17 @@ _PLANNER_SYSTEM = """\
 あなたは日本語の技術マニュアル検索を補助するアシスタントです。
 利用者の質問に答えるために全文検索エンジンへ投げるべき検索語を考えてください。
 
+この検索エンジンは文字列がそのまま載っているページしか返しません。意味の近さでは
+当たらないので、**マニュアルにその字面で書かれていそうな語**を選ぶことが重要です。
+
 規則:
 - 出力はJSONのみ。形式は {"queries": ["検索語1", "検索語2", "検索語3"]}
 - 各検索語は1〜3語の名詞で構成する。助詞や「どうすれば」などの疑問表現は入れない。
 - 型番・エラーコード・部品名があれば必ず含める。
+- 話し言葉は、マニュアルで使われる書き言葉に置き換える
+  （例: "動かない" → "起動しない" / "異常" 、"変な音" → "異音"）。
 - 表記が揺れそうな場合は、言い換えを別の検索語として並べる（例: "冷却ファン" と "送風機"）。
+- 1つの検索語は長くしすぎない。3〜6文字程度の語のほうが当たりやすい。
 - 検索語は最大4個。
 """
 
@@ -153,10 +159,36 @@ _PROBE_TAIL = (
 )
 
 
+def widen_keywords(keywords: list[str], question: str) -> list[str]:
+    """最初の検索語が全部外れたときに試す、別の切り口の検索語。
+
+    全文検索は「マニュアルにその文字列があるか」しか見ないので、言い回しが
+    合っていないと1件も返らない。そこで、複合語を単語に割ったものと、質問文から
+    直接切り出した語を足して、もう一度だけ広げて探す。
+    """
+    seen = {k for k in keywords}
+    widened: list[str] = []
+
+    def add(word: str) -> None:
+        word = word.strip()
+        if len(word) >= 2 and word not in seen:
+            seen.add(word)
+            widened.append(word)
+
+    # 「冷却ファン 異音」のような複合をばらす
+    for keyword in keywords:
+        for part in keyword.split():
+            add(part)
+
+    for word in fallback_keywords(question):
+        add(word)
+    return widened
+
+
 def _build_client(config: AiConfig):
-    if not config.enabled:
+    if not config.can_probe:
         raise AssistantError(
-            "ローカルAIの接続先とモデルを設定してください。"
+            "ローカルAIの接続先を設定してください。"
             if config.is_local
             else "OpenAIのAPIキーが設定されていません。設定画面で登録してください。"
         )
@@ -187,13 +219,23 @@ class Assistant:
             self._client = _build_client(self.config)
         return self._client
 
+    def _require_ready(self) -> None:
+        """モデルまで揃っているか。揃っていなければ何が足りないかを言う。"""
+        missing = self.config.missing
+        if missing:
+            raise AssistantError(f"{self.config.where}の{missing}が設定されていません。")
+
     # ------------------------------------------------------------------ 接続確認
     def list_models(self, timeout: float = PROBE_TIMEOUT) -> list[str]:
         """接続先に入っているモデル名を返す。取れなければ空。
 
         画面の表示に使うので、待たされないよう短めに打ち切る。
         """
-        client = self.client
+        try:
+            client = self.client
+        except AssistantError:
+            return []
+
         # 状態表示のための確認なので、再試行はしない（失敗は失敗として早く返す）
         with_options = getattr(client, "with_options", None)
         if with_options is not None:
@@ -227,6 +269,11 @@ class Assistant:
         それが答えられない＝切り捨てられている、と判定できる。
         """
         result = HealthCheck()
+        try:
+            self._require_ready()
+        except AssistantError as exc:
+            result.detail = str(exc)
+            return result
 
         started = time.perf_counter()
         try:
@@ -352,9 +399,20 @@ class Assistant:
         question = question.strip()
         if not question:
             raise AssistantError("質問が空です。")
+        self._require_ready()
 
         keywords, planned_by_llm = self.plan_keywords(question)
         sources = self.collect_sources(conn, keywords, max_sources=max_sources, machine=machine)
+
+        if not sources:
+            # 言い回しが合わずに1件も出ないことがあるので、一度だけ広げて探し直す
+            extra = widen_keywords(keywords, question)
+            if extra:
+                sources = self.collect_sources(
+                    conn, extra, max_sources=max_sources, machine=machine
+                )
+                if sources:
+                    keywords = keywords + extra
 
         if not sources:
             return Answer(

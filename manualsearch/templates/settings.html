@@ -11,7 +11,14 @@
   <p class="muted">
     現在の状態:
     {% if not ai.enabled %}
-    <b class="warn-cell">無効</b> — 下のどちらかを設定してください
+      {% if ai.is_local and status.reachable %}
+      <b class="warn-cell">あと少しです</b> — ローカルサーバーには繋がっています。
+      下の<b>モデル</b>を選んで保存してください。
+      {% elif ai.missing %}
+      <b class="warn-cell">無効</b> — {{ ai.where }}の<b>{{ ai.missing }}</b>が入力されていません
+      {% else %}
+      <b class="warn-cell">無効</b> — 下のどちらかを設定してください
+      {% endif %}
     {% elif status.reachable and status.model_found is not false %}
     <b style="color:var(--accent)">{{ ai.where }} の {{ ai.model }} に接続中</b>
     {% elif status.reachable %}
@@ -75,20 +82,27 @@
         <tr>
           <th><label for="local_model">モデル</label></th>
           <td>
-            <input type="text" id="local_model" name="local_model" style="width:100%"
-                   value="{{ ai.local_model }}" placeholder="qwen3:32b"
-                   list="local-model-names">
-            {% if status.models and ai.is_local %}
-            <datalist id="local-model-names">
-              {% for name in status.models %}<option value="{{ name }}">{% endfor %}
-            </datalist>
+            {% if status.models %}
+            <select id="local_model" name="local_model" style="width:100%;max-width:none">
+              <option value="">-- 使うモデルを選んでください --</option>
+              {% for name in status.models %}
+              <option value="{{ name }}" {% if name == ai.local_model %}selected{% endif %}>{{ name }}</option>
+              {% endfor %}
+            </select>
             <div class="muted" style="font-size:12px">
-              サーバーにあるモデル:
-              {% for name in status.models %}<kbd>{{ name }}</kbd> {% endfor %}
+              サーバーに入っている {{ status.models|length }} 件から選べます
             </div>
             {% else %}
+            <input type="text" id="local_model" name="local_model" style="width:100%"
+                   value="{{ ai.local_model }}" placeholder="例: qwen3:32b（入力例。実際に入力が必要です）">
             <div class="muted" style="font-size:12px">
-              <kbd>ollama list</kbd> に出る名前を入れてください（例: <kbd>qwen3:32b</kbd>）
+              接続先に繋がるとここが選択式になります。今は
+              <kbd>ollama list</kbd> に出る名前を<b>手で入力</b>してください。
+              {% if ai.local_base_url and not status.reachable %}
+              <br><span class="warn-cell">
+                {{ ai.local_base_url }} に繋がりません。Ollama が起動しているか確認してください。
+              </span>
+              {% endif %}
             </div>
             {% endif %}
           </td>

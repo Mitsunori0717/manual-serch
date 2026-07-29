@@ -159,9 +159,22 @@ def test_missing_api_key_is_reported_clearly(conn):
 
 
 def test_an_incomplete_local_setup_is_reported_clearly(conn):
+    """接続先だけでモデルが未入力のとき、何が足りないかを言うこと。"""
     assistant = Assistant(AiConfig(provider="local", local_base_url="http://127.0.0.1:1/v1"))
-    with pytest.raises(AssistantError, match="接続先とモデル"):
+    with pytest.raises(AssistantError, match="モデルが設定されていません"):
         assistant.ask(conn, "エラーコードについて")
+
+
+def test_models_can_be_listed_before_a_model_is_chosen():
+    """モデル未入力でも一覧は引ける（そこから選ばせるため）。"""
+    client = FakeClient([])
+    client.models = type("M", (), {"list": lambda _s, **kw: type("R", (), {
+        "data": [type("I", (), {"id": "qwen3:32b"})()]
+    })()})()
+    assistant = Assistant(
+        AiConfig(provider="local", local_base_url="http://127.0.0.1:1/v1"), client=client
+    )
+    assert assistant.list_models() == ["qwen3:32b"]
 
 
 def test_a_local_server_needs_no_api_key():

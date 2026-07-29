@@ -96,12 +96,20 @@ def create_app(config: Config) -> FastAPI:
             "models": [],
         }
 
-        if assistant is not None:
-            models = assistant.list_models()
+        # モデルが未入力でも、接続先さえ分かればサーバーの中身は聞ける。
+        # その一覧を設定画面で選ばせたいので、ここでは enabled を条件にしない。
+        prober = assistant if assistant is not None else (
+            Assistant(config) if config.can_probe else None
+        )
+        if prober is not None:
+            models = prober.list_models()
             status["models"] = models
             status["reachable"] = bool(models)
-            if models:
+            if models and config.model:
                 status["model_found"] = config.model in models
+
+        status["missing"] = config.missing
+        status["can_probe"] = config.can_probe
 
         app.state.ai_status_cache = (now, status)
         return status

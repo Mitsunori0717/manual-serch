@@ -134,6 +134,26 @@ class AiConfig:
         return bool(self.local_base_url and self.local_model) if self.is_local else bool(self.api_key)
 
     @property
+    def can_probe(self) -> bool:
+        """接続先を確かめられる状態か。
+
+        モデルが未入力でも、接続先さえ分かればサーバーに「何が入っているか」を
+        聞ける。その一覧から選ばせたいので、``enabled`` とは分けて持つ。
+        """
+        return bool(self.local_base_url) if self.is_local else bool(self.api_key)
+
+    @property
+    def missing(self) -> str:
+        """使える状態になるために足りないもの。空文字なら不足なし。"""
+        if self.is_local:
+            if not self.local_base_url:
+                return "接続先"
+            if not self.local_model:
+                return "モデル"
+            return ""
+        return "" if self.api_key else "APIキー"
+
+    @property
     def where(self) -> str:
         """画面に出す接続先の呼び名。"""
         if not self.is_local:

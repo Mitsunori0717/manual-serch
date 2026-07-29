@@ -406,3 +406,72 @@ def test_saving_settings_clears_the_cached_status(client):
     payload = client.get("/api/ai/status").json()
     assert payload["local"] is True
     assert payload["model"] == "qwen3:32b"
+
+
+# ------------------------------------------- モデル未入力（今回の詰まりどころ）
+def test_local_setup_without_a_model_is_not_enabled():
+    """接続先だけ入れても使えない。何が足りないかを言えること。"""
+    config = AiConfig(provider="local", local_base_url="http://localhost:11434/v1")
+    assert config.enabled is False
+    assert config.missing == "モデル"
+    # モデルが無くても、サーバーに何が入っているかは聞ける
+    assert config.can_probe is True
+
+
+def test_local_setup_without_an_address_says_so():
+    config = AiConfig(provider="local")
+    assert config.missing == "接続先"
+    assert config.can_probe is False
+
+
+def test_openai_without_a_key_says_so():
+    assert AiConfig(provider="openai").missing == "APIキー"
+
+
+def test_a_complete_setup_has_nothing_missing():
+    config = AiConfig(
+        provider="local", local_base_url="http://localhost:11434/v1", local_model="qwen3:32b"
+    )
+    assert config.missing == ""
+
+
+def test_the_screen_says_which_field_is_missing(client, tmp_path: Path):
+    """接続先だけ保存した状態で、モデルが要ると分かること。"""
+    client.post("/settings", data={"provider": "local", "local_base_url": "http://127.0.0.1:1/v1"})
+
+    body = client.get("/settings").text
+    assert "モデル" in body
+    assert "入力されていません" in body or "選んで保存" in body
+
+
+def test_models_are_listed_for_choosing_even_before_one_is_set(client):
+    """モデル未入力でもサーバーに問い合わせ、一覧から選ばせること。"""
+    from manualsearch.assistant import Assistant
+    from manualsearch.config import AiConfig as Cfg
+
+    class ModelListingClient:
+        def __init__(self, names):
+            self.models = type("M", (), {"list": lambda _self, **kw: type("R", (), {
+                "data": [type("I", (), {"id": n})() for n in names]
+            })()})()
+
+    app = client.app
+    # 接続先だけ設定された状態（モデルは未入力）
+    app.state.ai_config = Cfg(provider="local", local_base_url="http://localhost:11434/v1")
+    app.state.assistant = None  # enabled ではないので本体は作られていない
+    app.state.ai_status_cache = None
+
+    import manualsearch.web as web
+
+    original = web.Assistant
+    web.Assistant = lambda cfg, client=None: Assistant(
+        cfg, client=ModelListingClient(["qwen3:32b", "qwen3:30b-a3b"])
+    )
+    try:
+        payload = client.get("/api/ai/status").json()
+        assert payload["enabled"] is False
+        assert payload["reachable"] is True
+        assert payload["models"] == ["qwen3:30b-a3b", "qwen3:32b"]
+        assert payload["missing"] == "モデル"
+    finally:
+        web.Assistant = original
