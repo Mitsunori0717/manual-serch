@@ -63,6 +63,51 @@
   </form>
 
   {% if ai.enabled %}
+  <form method="post" action="/settings/test" style="margin-top:-8px">
+    <button type="submit" style="background:transparent;color:var(--accent);border-color:var(--line)">
+      接続テスト
+    </button>
+    <span class="muted" style="margin-left:8px;font-size:13px">
+      実際に問い合わせて、繋がるか・長い文章を扱えるかを確かめます（10〜60秒かかります）
+    </span>
+  </form>
+  {% endif %}
+
+  {% if check %}
+  <div class="notice {{ '' if check.ok else 'warn' }}" style="margin-top:16px">
+    <table>
+      <tr>
+        <th style="width:12em">接続</th>
+        <td>
+          {% if check.reachable %}
+          <b style="color:var(--accent)">OK</b>（{{ "%.0f"|format(check.latency_ms) }} ms）
+          {% else %}<b class="warn-cell">NG</b>{% endif %}
+          <div class="muted" style="font-size:12px">{{ check.detail }}</div>
+        </td>
+      </tr>
+      {% if check.reachable %}
+      <tr>
+        <th>長い文章の読み取り</th>
+        <td>
+          {% if check.context_ok %}
+          <b style="color:var(--accent)">OK</b>
+          （{{ "{:,}".format(check.context_chars) }} 文字を {{ "%.1f"|format(check.context_ms / 1000) }} 秒で処理）
+          {% else %}
+          <b class="warn-cell">NG</b> — 渡した文章の先頭が捨てられています
+          <div class="muted" style="font-size:12px">
+            サーバーのコンテキスト長が足りません。このままだとマニュアルの内容を
+            読まずに回答してしまいます。Ollama なら環境変数
+            <kbd>OLLAMA_CONTEXT_LENGTH=16384</kbd> を設定して起動し直してください。
+          </div>
+          {% endif %}
+        </td>
+      </tr>
+      {% endif %}
+    </table>
+  </div>
+  {% endif %}
+
+  {% if ai.enabled %}
   <form method="post" action="/settings"
         onsubmit="return confirm('APIキーを削除して、AIに相談する機能を無効にします。よろしいですか？')">
     <input type="hidden" name="clear" value="1">

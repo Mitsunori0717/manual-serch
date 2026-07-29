@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import time
 from dataclasses import dataclass, field
 
 from .config import AiConfig
@@ -119,6 +120,31 @@ def fallback_keywords(question: str) -> list[str]:
     return seen[:4]
 
 
+@dataclass
+class HealthCheck:
+    """接続テストの結果。"""
+
+    reachable: bool = False
+    detail: str = ""
+    latency_ms: float = 0.0
+    context_ok: bool | None = None
+    context_ms: float = 0.0
+    context_chars: int = 0
+
+    @property
+    def ok(self) -> bool:
+        return self.reachable and self.context_ok is not False
+
+
+# 接続テストで「先頭が切り捨てられていないか」を見るための合言葉
+_PROBE_TOKEN = "XK7Q2"
+_PROBE_HEAD = f"確認コードは {_PROBE_TOKEN} です。この行を必ず覚えておいてください。\n\n"
+_PROBE_TAIL = (
+    "\n\n上の文章のいちばん先頭に書かれている確認コードだけを、"
+    "他には何も付けずに答えてください。"
+)
+
+
 def _build_client(config: AiConfig):
     if not config.enabled:
         raise AssistantError(
@@ -152,6 +178,63 @@ class Assistant:
         if self._client is None:
             self._client = _build_client(self.config)
         return self._client
+
+    # ------------------------------------------------------------------ 接続確認
+    def check(self, conn: sqlite3.Connection | None = None, *, probe_chars: int = 12000) -> HealthCheck:
+        """接続先が使える状態かを確かめる。
+
+        2段階で見る。
+
+        1. 短い質問を投げて、繋がるか・モデル名が正しいかを確かめる
+        2. 実際の相談と同じくらい長い文章（既定で約1.2万文字）を投げ、その先頭に
+           置いた合言葉を答えさせる
+
+        2番目が肝心。ローカルのサーバーはコンテキスト長の既定値が小さいことが多く、
+        溢れたぶんは**黙って先頭から捨てられる**。エラーにならないので、気づかないまま
+        「マニュアルの内容を無視した回答」が返り続ける。合言葉を先頭に置いておけば、
+        それが答えられない＝切り捨てられている、と判定できる。
+        """
+        result = HealthCheck()
+
+        started = time.perf_counter()
+        try:
+            response = self.client.chat.completions.create(
+                model=self.config.model,
+                temperature=0,
+                messages=[{"role": "user", "content": "「OK」とだけ答えてください。"}],
+            )
+            reply = (response.choices[0].message.content or "").strip()
+        except AssistantError as exc:
+            result.detail = str(exc)
+            return result
+        except Exception as exc:
+            result.detail = f"接続できませんでした: {exc}"
+            return result
+
+        result.reachable = True
+        result.latency_ms = (time.perf_counter() - started) * 1000
+        result.detail = f"応答: {reply[:40]}" if reply else "応答が空でした"
+
+        filler = _probe_filler(conn, probe_chars)
+        prompt = _PROBE_HEAD + filler + _PROBE_TAIL
+        result.context_chars = len(prompt)
+
+        started = time.perf_counter()
+        try:
+            response = self.client.chat.completions.create(
+                model=self.config.model,
+                temperature=0,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            answer = (response.choices[0].message.content or "").upper()
+        except Exception as exc:
+            result.context_ok = False
+            result.detail = f"長い文章を渡すと失敗しました: {exc}"
+            return result
+
+        result.context_ms = (time.perf_counter() - started) * 1000
+        result.context_ok = _PROBE_TOKEN in answer
+        return result
 
     # ------------------------------------------------------------------ 検索語
     def plan_keywords(self, question: str) -> tuple[list[str], bool]:
@@ -277,6 +360,21 @@ class Assistant:
             model=self.config.model,
             planned_by_llm=planned_by_llm,
         )
+
+
+def _probe_filler(conn: sqlite3.Connection | None, target_chars: int) -> str:
+    """接続テストで使う長文。実際のマニュアル本文を使い、本番と同じ負荷にする。"""
+    if conn is not None:
+        rows = conn.execute(
+            "SELECT text FROM pages WHERE LENGTH(text) > 50 ORDER BY LENGTH(text) DESC LIMIT 40"
+        ).fetchall()
+        text = "\n\n".join(row["text"] for row in rows)
+        if len(text) >= target_chars:
+            return text[:target_chars]
+        if text:
+            # 索引が小さいときは繰り返して長さを稼ぐ
+            return (text * (target_chars // len(text) + 1))[:target_chars]
+    return "これは接続確認のための文章です。" * (target_chars // 16 + 1)
 
 
 _JSON_BLOCK = re.compile(r"\{.*\}", re.S)

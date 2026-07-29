@@ -24,7 +24,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
 from . import __version__, db, library, search as search_mod
-from .assistant import Assistant, AssistantError, link_citations
+from .assistant import Assistant, AssistantError, HealthCheck, link_citations
 from .config import ENV_FILENAME, AiConfig, Config, mask_secret, save_env_file
 from .extract import ocr_status
 from .library import LibraryEntry
@@ -200,6 +200,19 @@ def create_app(config: Config) -> FastAPI:
     ):
         return templates.TemplateResponse(
             request, "settings.html", {**settings_context(request, conn), "saved": saved}
+        )
+
+    @app.post("/settings/test", response_class=HTMLResponse)
+    def test_connection(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
+        """接続先が本当に使えるかを、実際に問い合わせて確かめる。"""
+        assistant: Assistant | None = app.state.assistant
+        check = (
+            assistant.check(conn)
+            if assistant is not None
+            else HealthCheck(detail="先にAPIキーか接続先を保存してください。")
+        )
+        return templates.TemplateResponse(
+            request, "settings.html", {**settings_context(request, conn), "check": check}
         )
 
     @app.post("/settings")

@@ -224,3 +224,58 @@ def test_answer_html_is_escaped(conn):
     answer = assistant.ask(conn, "E203について")
 
     assert "<script>" not in link_citations(answer)
+
+
+# --------------------------------------------------------------- 接続テスト
+def test_health_check_reports_a_working_server(conn):
+    assistant, _ = make_assistant(["OK", "XK7Q2"])
+    check = assistant.check(conn)
+
+    assert check.reachable is True
+    assert check.context_ok is True
+    assert check.ok is True
+    assert check.context_chars > 10000
+
+
+def test_health_check_detects_a_silently_truncating_server(conn):
+    """コンテキストが足りないサーバーはエラーを返さず、黙って先頭を捨てる。
+
+    そのまま使うとマニュアルを読まずに答えてしまうので、必ず気づけること。
+    """
+    assistant, _ = make_assistant(["OK", "確認コードは見当たりませんでした"])
+    check = assistant.check(conn)
+
+    assert check.reachable is True
+    assert check.context_ok is False
+    assert check.ok is False
+
+
+def test_health_check_reports_an_unreachable_server(conn):
+    assistant, _ = make_assistant([], fail=True)
+    check = assistant.check(conn)
+
+    assert check.reachable is False
+    assert check.ok is False
+    assert "接続できません" in check.detail
+
+
+def test_health_check_reports_a_missing_key(conn):
+    check = Assistant(AiConfig(api_key="")).check(conn)
+    assert check.reachable is False
+    assert "APIキー" in check.detail
+
+
+def test_health_check_uses_real_manual_text(conn):
+    """本番と同じ負荷で測れるよう、確認用の長文は索引の本文から作る。"""
+    assistant, client = make_assistant(["OK", "XK7Q2"])
+    assistant.check(conn, probe_chars=3000)
+
+    prompt = client.chat.completions.calls[-1]["messages"][-1]["content"]
+    assert "エラーコード" in prompt  # サンプルPDFの本文が入っている
+    assert prompt.startswith("確認コードは")
+
+
+def test_health_check_works_without_an_index():
+    assistant, _ = make_assistant(["OK", "XK7Q2"])
+    check = assistant.check(None, probe_chars=2000)
+    assert check.context_ok is True
