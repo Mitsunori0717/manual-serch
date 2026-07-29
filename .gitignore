@@ -8,6 +8,9 @@ venv/
 *.egg-info/
 .pytest_cache/
 
+# 書き込み権限の確認に使う一時ファイル
+.write-test
+
 # 診断.bat の出力
 診断結果.txt
 

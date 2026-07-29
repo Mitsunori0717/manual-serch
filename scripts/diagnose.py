@@ -112,6 +112,31 @@ def check_location(report: Report) -> None:
     if " " in ROOT.name:
         report.warn(f"フォルダ名に空白があります: {ROOT.name}")
 
+    check_writable(report)
+
+
+def check_writable(report: Report) -> None:
+    """このフォルダに書き込めるか。
+
+    書き込めないと、仮想環境も索引もPDFの台帳も作れない。管理者として実行すれば
+    通ってしまうため原因に気づきにくく、次に普通に起動したときまた失敗する。
+    """
+    probe = ROOT / ".write-test"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except PermissionError:
+        report.bad(
+            "このフォルダに書き込めません。仮想環境も索引も作れないので動きません。"
+            "フォルダを右クリック → プロパティ → セキュリティ で、お使いのユーザーに"
+            "「変更」を許可してください（管理者として実行するのは応急処置です）。"
+        )
+        return
+    except OSError as exc:
+        report.bad(f"このフォルダに書き込めません: {exc}")
+        return
+    report.ok("このフォルダに書き込めます")
+
 
 def check_files(report: Report) -> None:
     report.head("必要なファイル")
@@ -258,6 +283,26 @@ def check_app(report: Report, python: Path) -> None:
             report.bad(f"{label} が失敗しました（終了コード {code}）")
 
 
+def write_report(text: str) -> Path | None:
+    """診断結果を書き出す。書けない場所なら別の場所に逃がす。
+
+    「フォルダに書き込めない」こと自体がよくある原因なので、
+    その場合でもレポートだけは残せるようにしておく。
+    """
+    candidates = [OUTPUT]
+    for folder in (Path(os.environ.get("TEMP", "")), Path.home() / "Desktop", Path.home()):
+        if str(folder) and folder.is_dir():
+            candidates.append(folder / OUTPUT.name)
+
+    for candidate in candidates:
+        try:
+            candidate.write_text(text, encoding="utf-8-sig")
+        except OSError:
+            continue
+        return candidate
+    return None
+
+
 def main() -> int:
     report = Report()
     check_location(report)
@@ -271,9 +316,14 @@ def main() -> int:
         check_packages(report, python)
         check_app(report, python)
 
-    OUTPUT.write_text(report.render(), encoding="utf-8-sig")
+    written = write_report(report.render())
+    if written is None:
+        print("診断結果をファイルに書き出せませんでした。以下をそのまま見せてください。")
+        print()
+        print(report.render())
+        return 1
 
-    print(f"診断結果を書き出しました: {OUTPUT}")
+    print(f"診断結果を書き出しました: {written}")
     print()
     if report.problems:
         print(f"問題が {len(report.problems)} 件見つかりました:")
@@ -285,7 +335,7 @@ def main() -> int:
 
     # Windowsならメモ帳で開く
     try:
-        os.startfile(OUTPUT)  # type: ignore[attr-defined]
+        os.startfile(written)  # type: ignore[attr-defined]
     except AttributeError:
         pass
     except Exception:

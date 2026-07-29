@@ -21,6 +21,13 @@ echo  マニュアル検索
 echo ============================================
 echo.
 
+rem ---------------------------------------------------------------- 書き込み権限
+rem 書き込めないと仮想環境も索引も作れない。管理者として実行すれば通ってしまい
+rem 原因に気づきにくいので、最初に確かめる。
+type nul > "%~dp0.write-test" 2>nul
+if not exist "%~dp0.write-test" goto no_write
+del "%~dp0.write-test" >nul 2>&1
+
 rem ---------------------------------------------------------------- Python
 call :find_python
 if not defined PYTHON goto no_python
@@ -102,6 +109,23 @@ echo   1. https://www.python.org/downloads/ からインストールしてくだ
 echo   2. インストール画面の下にある
 echo      「Add python.exe to PATH」に必ずチェックを入れてください。
 echo   3. インストール後、このファイルをもう一度ダブルクリックしてください。
+goto done
+
+:no_write
+echo [エラー] このフォルダに書き込めません。
+echo.
+echo   仮想環境も索引も作れないので、このままでは動きません。
+echo   次のどちらかで直ります。
+echo.
+echo   A) フォルダの権限を直す（おすすめ・一度だけ）
+echo      このフォルダを右クリック - プロパティ - セキュリティ - 編集 で、
+echo      お使いのユーザーに「変更」を許可してください。
+echo.
+echo   B) 書き込める場所へ移す
+echo      C:\manual-serch や、ドキュメントの下などへフォルダごと移動してください。
+echo.
+echo   「管理者として実行」でも動きますが、毎回必要になるうえ、
+echo   作られたファイルが管理者のものになるため勧めません。
 goto done
 
 :venv_failed
