@@ -166,3 +166,76 @@ def test_parallel_indexing_matches_serial(tmp_path: Path, manual_root: Path):
         assert search(conn, "エラーコード").total == 2
     finally:
         conn.close()
+
+
+# --------------------------------------------------------------- 深い階層
+def test_pdfs_are_found_at_any_depth(tmp_path: Path, manual_root: Path):
+    """機種フォルダの下がさらに分かれていても拾うこと。"""
+    make_pdf(
+        manual_root / "ロボドリル" / "取扱説明書" / "基本編" / "α-D21_基本編.pdf",
+        [["第1章 概要", "アラーム SV0417 が発生した場合の処置を説明します。"]],
+    )
+    make_pdf(
+        manual_root / "FIELD" / "システム" / "BOX" / "導入" / "手順書.pdf",
+        [["第1章 概要", "接続できない場合の対応方法を説明します。"]],
+    )
+
+    conn = db.connect(tmp_path / "index.db")
+    try:
+        index_directory(conn, manual_root, ocr="never", workers=1)
+
+        assert search(conn, "SV0417").total == 1
+        assert search(conn, "接続できない").total == 1
+    finally:
+        conn.close()
+
+
+def test_the_machine_is_the_top_folder_however_deep_the_pdf_is(tmp_path: Path, manual_root: Path):
+    """何階層下にあっても、機種は第1階層のフォルダ名で決まること。"""
+    make_pdf(
+        manual_root / "ロボドリル" / "取扱説明書" / "基本編" / "α-D21_基本編.pdf",
+        [["第1章 概要", "アラーム SV0417 が発生した場合の処置を説明します。"]],
+    )
+
+    conn = db.connect(tmp_path / "index.db")
+    try:
+        index_directory(conn, manual_root, ocr="never", workers=1)
+        assert search(conn, "SV0417", machine="ロボドリル").total == 1
+    finally:
+        conn.close()
+
+
+def test_a_pdf_deleted_from_a_nested_folder_is_removed_from_the_index(
+    tmp_path: Path, manual_root: Path
+):
+    """深い階層のPDFを消したときも、索引から自動で消えること。"""
+    target = manual_root / "ロボドリル" / "取扱説明書" / "基本編" / "α-D21_基本編.pdf"
+    make_pdf(target, [["第1章 概要", "アラーム SV0417 が発生した場合の処置を説明します。"]])
+
+    conn = db.connect(tmp_path / "index.db")
+    try:
+        index_directory(conn, manual_root, ocr="never", workers=1)
+        assert search(conn, "SV0417").total == 1
+
+        target.unlink()
+        report = index_directory(conn, manual_root, ocr="never", workers=1)
+
+        assert report.removed == 1
+        assert search(conn, "SV0417").total == 0
+    finally:
+        conn.close()
+
+
+def test_non_pdf_files_are_ignored(tmp_path: Path, manual_root: Path):
+    """置き場に案内テキストなどがあっても索引に混ざらないこと。"""
+    (manual_root / "はじめにお読みください.txt").write_text("説明", encoding="utf-8")
+    (manual_root / "ロボドリル").mkdir(exist_ok=True)
+    (manual_root / "ロボドリル" / "メモ.xlsx").write_bytes(b"not a pdf")
+
+    conn = db.connect(tmp_path / "index.db")
+    try:
+        report = index_directory(conn, manual_root, ocr="never", workers=1)
+        assert report.added == 3  # conftest のPDF3冊だけ
+        assert report.failures == []
+    finally:
+        conn.close()
