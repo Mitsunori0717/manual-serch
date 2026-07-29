@@ -115,8 +115,10 @@
           <div class="muted" style="font-size:12px">
             サーバーのコンテキスト長が足りません。このままだとマニュアルの内容を
             読まずに回答してしまいます。Ollama のアプリなら
-            <b>Settings → Context length のスライダーを 16k</b> にしてください
-            （コマンドで設定する場合は <kbd>OLLAMA_CONTEXT_LENGTH=16384</kbd>）。
+            <b>Settings → Context length のスライダーを 16k</b> にしてください。
+            スライダーが動かせない場合は、同梱の
+            <kbd>scripts\make_ollama_model.bat</kbd> を実行すると、コンテキスト長を
+            埋め込んだモデルを作れます（作られた名前を上のモデル欄に入れてください）。
           </div>
           {% endif %}
         </td>
