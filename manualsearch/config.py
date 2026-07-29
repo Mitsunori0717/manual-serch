@@ -109,6 +109,9 @@ class AiConfig:
     local_base_url: str = ""
     local_model: str = ""
     timeout: float = 60.0
+    # ローカルの推論モデルに「考えている文章」を書かせるか。既定は書かせない。
+    # 抜粋から引用して答える作業に長考は要らず、待ち時間だけが数倍になるため。
+    local_think: bool = False
 
     # -------------------------------------------------- 選ばれている側の設定
     @property
@@ -185,6 +188,8 @@ class AiConfig:
             local_base_url=base_url,
             local_model=os.environ.get("MANUAL_LOCAL_MODEL", "").strip(),
             timeout=float(os.environ.get("MANUAL_AI_TIMEOUT", "60")),
+            local_think=os.environ.get("MANUAL_LOCAL_THINK", "").strip().lower()
+            in ("1", "true", "yes", "on"),
         )
 
 

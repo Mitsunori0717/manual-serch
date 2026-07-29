@@ -35,6 +35,16 @@ MAX_HISTORY_TURNS = 6
 # 画面がその間ずっと固まってしまう。
 PROBE_TIMEOUT = 3.0
 
+# 検索語を作らせる問い合わせの出力上限。JSONを1行返すだけなので短くてよく、
+# 上限を切っておくと、話し始めたモデルが延々と続けて待たされることがなくなる。
+PLANNER_MAX_TOKENS = 400
+
+# ローカルの推論モデル（Qwen3 など）は、既定で「考えている文章」を長々と出してから
+# 答え始める。渡した抜粋から引用して答える作業に長考は要らないうえ、待ち時間が
+# 数倍になるので切っておく。これは Qwen3 のチャットテンプレートが解釈する合言葉で、
+# 対応していないモデルにとっては意味のない一語として読み飛ばされる。
+NO_THINK = "/no_think"
+
 _PLANNER_SYSTEM = """\
 あなたは日本語の技術マニュアル検索を補助するアシスタントです。
 利用者の質問に答えるために全文検索エンジンへ投げるべき検索語を考えてください。
@@ -102,6 +112,14 @@ class Answer:
     model: str = ""
     where: str = ""  # "ローカル" か "OpenAI"。どれが答えたか画面に出すため。
     planned_by_llm: bool = True
+    # 段階ごとの所要時間（ミリ秒）。遅いときにどこが遅いのかを画面で見せるため。
+    plan_ms: float = 0.0
+    search_ms: float = 0.0
+    answer_ms: float = 0.0
+
+    @property
+    def total_ms(self) -> float:
+        return self.plan_ms + self.search_ms + self.answer_ms
 
 
 # 助詞・語尾など、検索語として役に立たない部分
@@ -219,6 +237,12 @@ class Assistant:
             self._client = _build_client(self.config)
         return self._client
 
+    def _system(self, prompt: str) -> str:
+        """指示文。ローカルの推論モデル向けに「長考しない」指定を足す。"""
+        if self.config.is_local and not self.config.local_think:
+            return f"{prompt}\n{NO_THINK}"
+        return prompt
+
     def _require_ready(self) -> None:
         """モデルまで揃っているか。揃っていなければ何が足りないかを言う。"""
         missing = self.config.missing
@@ -324,7 +348,7 @@ class Assistant:
     def plan_keywords(self, question: str) -> tuple[list[str], bool]:
         """質問文から検索語を作る。``(検索語, LLMを使えたか)`` を返す。"""
         messages = [
-            {"role": "system", "content": _PLANNER_SYSTEM},
+            {"role": "system", "content": self._system(_PLANNER_SYSTEM)},
             {"role": "user", "content": question},
         ]
 
@@ -333,7 +357,11 @@ class Assistant:
         for kwargs in ({"response_format": {"type": "json_object"}}, {}):
             try:
                 response = self.client.chat.completions.create(
-                    model=self.config.model, temperature=0, messages=messages, **kwargs
+                    model=self.config.model,
+                    temperature=0,
+                    messages=messages,
+                    max_tokens=PLANNER_MAX_TOKENS,
+                    **kwargs,
                 )
                 queries = _parse_queries(response.choices[0].message.content or "")
             except AssistantError:
@@ -401,7 +429,11 @@ class Assistant:
             raise AssistantError("質問が空です。")
         self._require_ready()
 
+        started = time.perf_counter()
         keywords, planned_by_llm = self.plan_keywords(question)
+        plan_ms = (time.perf_counter() - started) * 1000
+
+        started = time.perf_counter()
         sources = self.collect_sources(conn, keywords, max_sources=max_sources, machine=machine)
 
         if not sources:
@@ -413,6 +445,7 @@ class Assistant:
                 )
                 if sources:
                     keywords = keywords + extra
+        search_ms = (time.perf_counter() - started) * 1000
 
         if not sources:
             return Answer(
@@ -428,14 +461,19 @@ class Assistant:
                 model=self.config.model,
                 where=self.config.where,
                 planned_by_llm=planned_by_llm,
+                plan_ms=plan_ms,
+                search_ms=search_ms,
             )
 
-        messages: list[dict[str, str]] = [{"role": "system", "content": _ANSWER_SYSTEM}]
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": self._system(_ANSWER_SYSTEM)}
+        ]
         for past_question, past_answer in (history or [])[-MAX_HISTORY_TURNS:]:
             messages.append({"role": "user", "content": past_question})
             messages.append({"role": "assistant", "content": past_answer})
         messages.append({"role": "user", "content": _format_prompt(question, sources, machine)})
 
+        started = time.perf_counter()
         try:
             response = self.client.chat.completions.create(
                 model=self.config.model,
@@ -447,6 +485,7 @@ class Assistant:
             raise
         except Exception as exc:
             raise AssistantError(f"ChatGPT APIの呼び出しに失敗しました: {exc}") from exc
+        answer_ms = (time.perf_counter() - started) * 1000
 
         return Answer(
             question=question,
@@ -456,6 +495,9 @@ class Assistant:
             model=self.config.model,
             where=self.config.where,
             planned_by_llm=planned_by_llm,
+            plan_ms=plan_ms,
+            search_ms=search_ms,
+            answer_ms=answer_ms,
         )
 
 

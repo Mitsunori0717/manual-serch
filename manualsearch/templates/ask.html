@@ -32,6 +32,13 @@
   <p class="muted" style="margin:14px 0 0;border-top:1px solid var(--line);padding-top:10px">
     この回答は <b>{{ answer.where }}</b> の <b>{{ answer.model }}</b> が、
     下の {{ answer.sources|length }} ページを読んで書きました。
+    <br>
+    <span style="font-size:12px">
+      かかった時間 <b>{{ "%.1f"|format(answer.total_ms / 1000) }} 秒</b>
+      （検索語を考える {{ "%.1f"|format(answer.plan_ms / 1000) }}秒 ／
+      マニュアル検索 {{ "%.0f"|format(answer.search_ms) }}ミリ秒 ／
+      答えを書く {{ "%.1f"|format(answer.answer_ms / 1000) }}秒）
+    </span>
   </p>
 </div>
 

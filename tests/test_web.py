@@ -147,6 +147,9 @@ def test_ask_page_shows_the_answer_with_linked_citations(ai_client):
     assert response.status_code == 200
     assert "冷却ファンを確認してください" in response.text
     assert 'class="cite"' in response.text
+    # 遅いときにどこが遅いか分かるよう、段階ごとの時間を出す
+    assert "かかった時間" in response.text
+    assert "答えを書く" in response.text
 
 
 def test_ask_page_without_a_question_shows_the_guide(ai_client):

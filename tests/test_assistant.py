@@ -340,3 +340,76 @@ def test_health_check_works_without_an_index():
     assistant, _ = make_assistant(["OK", "XK7Q2"])
     check = assistant.check(None, probe_chars=2000)
     assert check.context_ok is True
+
+
+# ------------------------------------------------------------------ 速さの工夫
+def _local_assistant(replies):
+    client = FakeClient(replies)
+    config = AiConfig(
+        provider="local", local_base_url="http://127.0.0.1:1/v1", local_model="qwen3:32b"
+    )
+    return Assistant(config, client=client), client
+
+
+def test_local_models_are_told_not_to_think_out_loud(conn):
+    """長考は待ち時間だけ増やすので、ローカルでは切る。"""
+    assistant, client = _local_assistant(
+        [json.dumps({"queries": ["エラーコード"]}), "冷却ファンを確認[1]"]
+    )
+    assistant.ask(conn, "エラーコードE203について")
+
+    for call in client.chat.completions.calls:
+        assert call["messages"][0]["content"].endswith("/no_think")
+
+
+def test_openai_is_not_given_the_no_think_switch(conn):
+    assistant, client = make_assistant(
+        [json.dumps({"queries": ["エラーコード"]}), "冷却ファンを確認[1]"]
+    )
+    assistant.ask(conn, "エラーコードE203について")
+
+    for call in client.chat.completions.calls:
+        assert "/no_think" not in call["messages"][0]["content"]
+
+
+def test_thinking_can_be_turned_back_on(conn):
+    client = FakeClient([json.dumps({"queries": ["エラーコード"]}), "確認[1]"])
+    config = AiConfig(
+        provider="local",
+        local_base_url="http://127.0.0.1:1/v1",
+        local_model="qwen3:32b",
+        local_think=True,
+    )
+    Assistant(config, client=client).ask(conn, "エラーコードE203について")
+
+    assert "/no_think" not in client.chat.completions.calls[0]["messages"][0]["content"]
+
+
+def test_keyword_planning_is_capped_so_a_chatty_model_cannot_stall_it(conn):
+    assistant, client = make_assistant([json.dumps({"queries": ["エラーコード"]})])
+    assistant.plan_keywords("エラーコードE203について")
+
+    assert client.chat.completions.calls[0]["max_tokens"] == 400
+
+
+def test_the_answer_reports_how_long_each_step_took(conn):
+    """遅いときにどこが遅いのかを画面で見せるため。"""
+    assistant, _ = make_assistant(
+        [json.dumps({"queries": ["エラーコード"]}), "冷却ファンを確認[1]"]
+    )
+    answer = assistant.ask(conn, "エラーコードE203について")
+
+    assert answer.plan_ms > 0
+    assert answer.search_ms > 0
+    assert answer.answer_ms > 0
+    assert answer.total_ms == answer.plan_ms + answer.search_ms + answer.answer_ms
+
+
+def test_timings_are_reported_even_when_nothing_was_found(conn):
+    assistant, _ = make_assistant([json.dumps({"queries": ["該当しない語句ZZZ"]})])
+    answer = assistant.ask(conn, "存在しない話ZZZについて")
+
+    assert answer.sources == []
+    assert answer.plan_ms > 0
+    assert answer.search_ms > 0
+    assert answer.answer_ms == 0.0
