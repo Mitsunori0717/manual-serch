@@ -15,6 +15,7 @@ echo ============================================
 echo  Ollama モデル作成（コンテキスト長を固定）
 echo ============================================
 echo.
+echo Ollama を探しています...
 
 where ollama >nul 2>&1
 if errorlevel 1 goto no_ollama
@@ -70,8 +71,16 @@ echo ============================================
 goto done
 
 :no_ollama
-echo [エラー] ollama コマンドが見つかりません。
-echo   https://ollama.com/download からインストールしてください。
+echo [エラー] Ollama が入っていません。
+echo.
+echo   このスクリプトは Ollama の代わりではありません。
+echo   Ollama を入れたうえで、そのモデルの設定を変えるための道具です。
+echo.
+echo   1. https://ollama.com/download から Ollama をインストール
+echo   2. インストール後、これをもう一度実行
+echo.
+echo   なお、先に「マニュアル検索」の設定タブで接続テストを試してください。
+echo   「長い文章の読み取り」が OK なら、このスクリプトは不要です。
 goto done
 
 :pull_failed
