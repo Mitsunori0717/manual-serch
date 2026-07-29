@@ -114,8 +114,9 @@
           <b class="warn-cell">NG</b> — 渡した文章の先頭が捨てられています
           <div class="muted" style="font-size:12px">
             サーバーのコンテキスト長が足りません。このままだとマニュアルの内容を
-            読まずに回答してしまいます。Ollama なら環境変数
-            <kbd>OLLAMA_CONTEXT_LENGTH=16384</kbd> を設定して起動し直してください。
+            読まずに回答してしまいます。Ollama のアプリなら
+            <b>Settings → Context length のスライダーを 16k</b> にしてください
+            （コマンドで設定する場合は <kbd>OLLAMA_CONTEXT_LENGTH=16384</kbd>）。
           </div>
           {% endif %}
         </td>
