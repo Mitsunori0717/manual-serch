@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 import sqlite3
+import time
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -25,11 +26,20 @@ from markupsafe import Markup
 
 from . import __version__, db, library, search as search_mod
 from .assistant import Assistant, AssistantError, HealthCheck, link_citations
-from .config import ENV_FILENAME, AiConfig, Config, mask_secret, save_env_file
+from .config import (
+    DEFAULT_LOCAL_BASE_URL,
+    ENV_FILENAME,
+    AiConfig,
+    Config,
+    mask_secret,
+    save_env_file,
+)
 from .extract import ocr_status
 from .library import LibraryEntry
 
 PER_PAGE = 30
+# AIの接続状態を確かめる間隔。毎回問い合わせると画面が重くなるので少し寝かせる。
+AI_STATUS_TTL = 15.0
 # 選んだ機種を覚えておく期間（毎回選び直さなくて済むように）
 MACHINE_COOKIE = "manual_machine"
 MACHINE_COOKIE_MAX_AGE = 60 * 60 * 24 * 90
@@ -47,6 +57,7 @@ def create_app(config: Config) -> FastAPI:
     app.state.assistant = Assistant(config.ai) if config.ai.enabled else None
     # 設定画面から書き込む .env の場所（起動したフォルダの直下）
     app.state.env_path = ENV_FILENAME
+    app.state.ai_status_cache = None
 
     def get_conn() -> sqlite3.Connection:
         conn: sqlite3.Connection | None = getattr(app.state, "conn", None)
@@ -60,6 +71,40 @@ def create_app(config: Config) -> FastAPI:
         conn = getattr(app.state, "conn", None)
         if conn is not None:
             conn.close()
+
+    def ai_status(force: bool = False) -> dict:
+        """AIに繋がっているか、どのモデルかを返す。
+
+        推論はせず、モデル一覧を引くだけの軽い確認にとどめる。結果は少しの間
+        使い回して、ページを開くたびに問い合わせないようにする。
+        """
+        cache = app.state.ai_status_cache
+        now = time.monotonic()
+        if not force and cache and now - cache[0] < AI_STATUS_TTL:
+            return cache[1]
+
+        config: AiConfig = app.state.ai_config
+        assistant: Assistant | None = app.state.assistant
+        status = {
+            "enabled": assistant is not None,
+            "local": config.is_local,
+            "model": config.model,
+            "base_url": config.base_url,
+            "where": config.where,
+            "reachable": False,
+            "model_found": None,
+            "models": [],
+        }
+
+        if assistant is not None:
+            models = assistant.list_models()
+            status["models"] = models
+            status["reachable"] = bool(models)
+            if models:
+                status["model_found"] = config.model in models
+
+        app.state.ai_status_cache = (now, status)
+        return status
 
     def base_context(
         request: Request, conn: sqlite3.Connection, machine: str = "", tab: str = "search"
@@ -218,27 +263,36 @@ def create_app(config: Config) -> FastAPI:
     @app.post("/settings")
     def save_settings(
         request: Request,
+        provider: str = Form(""),
         api_key: str = Form(""),
-        model: str = Form(""),
-        base_url: str = Form(""),
-        use_local: str = Form(""),
+        openai_model: str = Form(""),
+        local_base_url: str = Form(""),
+        local_model: str = Form(""),
         clear: str = Form(""),
         conn: sqlite3.Connection = Depends(get_conn),
     ):
+        """OpenAIとローカルの設定を両方とも保存し、provider でどちらを使うか決める。"""
         values: dict[str, str] = {}
+
         if clear:
+            # 「AI相談をやめる」。両方の設定を消す。
             values["OPENAI_API_KEY"] = ""
-        elif api_key.strip():
-            values["OPENAI_API_KEY"] = api_key.strip()
-        if model.strip():
-            values["MANUAL_AI_MODEL"] = model.strip()
-        if clear:
             values["OPENAI_BASE_URL"] = ""
-        elif use_local:
-            # 接続先が空欄なら Ollama の既定を入れておく
-            values["OPENAI_BASE_URL"] = base_url.strip() or "http://localhost:11434/v1"
+            values["MANUAL_LOCAL_MODEL"] = ""
         else:
-            values["OPENAI_BASE_URL"] = ""
+            if provider in ("openai", "local"):
+                values["MANUAL_AI_PROVIDER"] = provider
+            # 空欄で保存したときに今の値を消さない（キーは伏せ字で表示しているため）
+            if api_key.strip():
+                values["OPENAI_API_KEY"] = api_key.strip()
+            if openai_model.strip():
+                values["MANUAL_AI_MODEL"] = openai_model.strip()
+            if local_base_url.strip():
+                values["OPENAI_BASE_URL"] = local_base_url.strip()
+            elif provider == "local":
+                values["OPENAI_BASE_URL"] = DEFAULT_LOCAL_BASE_URL
+            if local_model.strip():
+                values["MANUAL_LOCAL_MODEL"] = local_model.strip()
 
         if values:
             save_env_file(values, app.state.env_path)
@@ -247,6 +301,7 @@ def create_app(config: Config) -> FastAPI:
             app.state.assistant = (
                 Assistant(app.state.ai_config) if app.state.ai_config.enabled else None
             )
+            app.state.ai_status_cache = None
 
         return RedirectResponse(url="/settings?saved=1", status_code=303)
 
@@ -256,6 +311,8 @@ def create_app(config: Config) -> FastAPI:
         return {
             **base_context(request, conn, tab="settings"),
             "ai": ai,
+            "status": ai_status(),
+            "default_local_url": DEFAULT_LOCAL_BASE_URL,
             "api_key_masked": mask_secret(ai.api_key),
             "ocr_available": ocr_available,
             "ocr_detail": ocr_detail,
@@ -362,6 +419,11 @@ def create_app(config: Config) -> FastAPI:
                 ],
             }
         )
+
+    @app.get("/api/ai/status")
+    def api_ai_status(refresh: int = Query(0)):
+        """画面の右上に出すAIの接続状態。"""
+        return JSONResponse(ai_status(force=bool(refresh)))
 
     @app.get("/api/machines")
     def api_machines(conn: sqlite3.Connection = Depends(get_conn)):

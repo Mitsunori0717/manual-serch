@@ -129,15 +129,15 @@ def test_settings_tab_is_always_available(client):
 def test_settings_page_reports_ai_as_disabled(client):
     body = client.get("/settings").text
     assert "無効" in body
-    assert "OpenAI APIキー" in body
+    assert "OpenAI を使う" in body
+    assert "ローカルのAIを使う" in body
 
 
 def test_saving_a_key_enables_the_assistant_without_a_restart(client, tmp_path: Path):
-    response = client.post("/settings", data={"api_key": "sk-test-123456789012"})
+    response = client.post("/settings", data={"provider": "openai", "api_key": "sk-test-123456789012"})
     assert response.status_code == 200  # リダイレクトを追った結果
 
     body = client.get("/settings").text
-    assert "有効" in body
     assert "sk-test-123456789012" not in body  # 生のキーは画面に出さない
 
     # AIに相談タブが使える状態になっている
@@ -147,16 +147,14 @@ def test_saving_a_key_enables_the_assistant_without_a_restart(client, tmp_path: 
 
 
 def test_an_empty_key_keeps_the_current_one(client):
-    client.post("/settings", data={"api_key": "sk-test-123456789012"})
-    client.post("/settings", data={"api_key": "", "model": "gpt-4o"})
+    client.post("/settings", data={"provider": "openai", "api_key": "sk-test-123456789012"})
+    client.post("/settings", data={"provider": "openai", "openai_model": "gpt-4o"})
 
-    body = client.get("/settings").text
-    assert "有効" in body
-    assert "gpt-4o" in body
+    assert "gpt-4o" in client.get("/settings").text
 
 
-def test_clearing_the_key_disables_the_assistant(client):
-    client.post("/settings", data={"api_key": "sk-test-123456789012"})
+def test_clearing_the_settings_disables_the_assistant(client):
+    client.post("/settings", data={"provider": "openai", "api_key": "sk-test-123456789012"})
     client.post("/settings", data={"clear": "1"})
 
     assert "無効" in client.get("/settings").text
@@ -225,31 +223,186 @@ def test_unknown_document_ids_are_ignored(client):
 
 # ------------------------------------------------------- ローカルAIサーバー
 def test_local_server_can_be_enabled_without_an_api_key(client, tmp_path: Path):
-    client.post("/settings", data={"use_local": "1", "model": "qwen2.5:14b-instruct"})
+    client.post("/settings", data={"provider": "local", "local_model": "qwen3:32b"})
 
-    body = client.get("/settings").text
-    assert "有効" in body
-    assert "ローカル" in body
+    env = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "MANUAL_AI_PROVIDER=local" in env
     # 接続先が空欄なら Ollama の既定を入れる
-    assert "http://localhost:11434/v1" in (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "http://localhost:11434/v1" in env
+    assert "qwen3:32b" in client.get("/settings").text
 
 
-def test_a_custom_local_address_is_kept(client, tmp_path: Path):
-    client.post("/settings", data={"use_local": "1", "base_url": "http://192.168.1.50:11434/v1"})
+def test_a_custom_local_address_is_kept(client):
+    client.post(
+        "/settings",
+        data={
+            "provider": "local",
+            "local_base_url": "http://192.168.1.50:11434/v1",
+            "local_model": "qwen3:32b",
+        },
+    )
     assert "http://192.168.1.50:11434/v1" in client.get("/settings").text
 
 
-def test_turning_the_local_option_off_returns_to_openai(client, tmp_path: Path):
-    client.post("/settings", data={"use_local": "1"})
-    client.post("/settings", data={"api_key": "sk-test-123456789012"})
+def test_both_providers_survive_switching(client, tmp_path: Path):
+    """片方を設定してももう片方が消えないこと。"""
+    client.post("/settings", data={"provider": "openai", "api_key": "sk-test-123456789012"})
+    client.post(
+        "/settings",
+        data={"provider": "local", "local_base_url": "http://127.0.0.1:1/v1", "local_model": "qwen3:32b"},
+    )
 
-    # 接続先が消えていること（画面の入力欄のプレースホルダは別物なので、保存先で確かめる）
     env = (tmp_path / ".env").read_text(encoding="utf-8")
-    assert "OPENAI_BASE_URL" not in env
-    assert "接続先: OpenAI" in client.get("/settings").text.replace("\n", "").replace("  ", "")
+    assert "sk-test-123456789012" in env  # OpenAIのキーは残っている
+    assert "MANUAL_AI_PROVIDER=local" in env
+    assert client.get("/api/ai/status").json()["local"] is True
+
+    # OpenAIへ戻しても、ローカルの設定は残る
+    client.post("/settings", data={"provider": "openai"})
+    env = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "http://127.0.0.1:1/v1" in env
+    assert "qwen3:32b" in env
+    assert client.get("/api/ai/status").json()["local"] is False
 
 
-def test_clearing_also_removes_the_local_address(client):
-    client.post("/settings", data={"use_local": "1"})
+def test_clearing_removes_both_providers(client, tmp_path: Path):
+    client.post("/settings", data={"provider": "openai", "api_key": "sk-test-123456789012"})
+    client.post(
+        "/settings",
+        data={"provider": "local", "local_base_url": "http://127.0.0.1:1/v1", "local_model": "qwen3:32b"},
+    )
     client.post("/settings", data={"clear": "1"})
+
+    env = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "sk-test-123456789012" not in env
+    assert "http://127.0.0.1:1/v1" not in env
     assert "無効" in client.get("/settings").text
+
+
+# ----------------------------------------------------- AIの接続状態バッジ
+def test_status_says_unset_when_no_ai_is_configured(client):
+    payload = client.get("/api/ai/status").json()
+    assert payload["enabled"] is False
+    assert payload["reachable"] is False
+
+
+def test_the_badge_is_on_every_page(client):
+    for path in ["/", "/library", "/settings"]:
+        assert 'id="ai-badge"' in client.get(path).text
+
+
+def test_status_reports_the_local_server_and_model(client, tmp_path: Path):
+    """繋がっていれば、どこの何を使っているかが分かること。"""
+    from manualsearch.assistant import Assistant
+    from manualsearch.config import AiConfig
+
+    class ModelListingClient:
+        def __init__(self, names):
+            self.models = type("M", (), {"list": lambda _self: type("R", (), {
+                "data": [type("I", (), {"id": n})() for n in names]
+            })()})()
+
+    app = client.app
+    app.state.ai_config = AiConfig(
+        provider="local", local_base_url="http://localhost:11434/v1", local_model="qwen3:32b"
+    )
+    app.state.assistant = Assistant(
+        app.state.ai_config, client=ModelListingClient(["qwen3:32b", "qwen3:30b-a3b"])
+    )
+    app.state.ai_status_cache = None
+
+    payload = client.get("/api/ai/status").json()
+    assert payload["enabled"] is True
+    assert payload["local"] is True
+    assert payload["where"] == "ローカル"
+    assert payload["model"] == "qwen3:32b"
+    assert payload["reachable"] is True
+    assert payload["model_found"] is True
+
+
+def test_status_flags_a_model_name_that_is_not_on_the_server(client):
+    from manualsearch.assistant import Assistant
+    from manualsearch.config import AiConfig
+
+    class ModelListingClient:
+        def __init__(self, names):
+            self.models = type("M", (), {"list": lambda _self: type("R", (), {
+                "data": [type("I", (), {"id": n})() for n in names]
+            })()})()
+
+    app = client.app
+    app.state.ai_config = AiConfig(
+        provider="local", local_base_url="http://localhost:11434/v1", local_model="qwen3:32b"
+    )
+    app.state.assistant = Assistant(app.state.ai_config, client=ModelListingClient(["llama3"]))
+    app.state.ai_status_cache = None
+
+    payload = client.get("/api/ai/status").json()
+    assert payload["reachable"] is True
+    assert payload["model_found"] is False
+    assert payload["models"] == ["llama3"]
+
+
+def test_status_reports_a_server_that_is_not_running(client):
+    from manualsearch.assistant import Assistant
+    from manualsearch.config import AiConfig
+
+    class DeadClient:
+        class _Models:
+            def list(self):
+                raise RuntimeError("connection refused")
+
+        models = _Models()
+
+    app = client.app
+    app.state.ai_config = AiConfig(
+        provider="local", local_base_url="http://localhost:11434/v1", local_model="qwen3:32b"
+    )
+    app.state.assistant = Assistant(app.state.ai_config, client=DeadClient())
+    app.state.ai_status_cache = None
+
+    payload = client.get("/api/ai/status").json()
+    assert payload["enabled"] is True
+    assert payload["reachable"] is False
+
+
+def test_status_is_reused_for_a_short_while(client):
+    """ページを開くたびに問い合わせないこと。"""
+    from manualsearch.assistant import Assistant
+    from manualsearch.config import AiConfig
+
+    calls = []
+
+    class CountingClient:
+        class _Models:
+            def __init__(self, calls):
+                self.calls = calls
+
+            def list(self):
+                self.calls.append(1)
+                raise RuntimeError("dead")
+
+        def __init__(self, calls):
+            self.models = self._Models(calls)
+
+    app = client.app
+    app.state.ai_config = AiConfig(
+        provider="local", local_base_url="http://localhost:11434/v1", local_model="qwen3:32b"
+    )
+    app.state.assistant = Assistant(app.state.ai_config, client=CountingClient(calls))
+    app.state.ai_status_cache = None
+
+    client.get("/api/ai/status")
+    client.get("/api/ai/status")
+    assert len(calls) == 1
+
+    client.get("/api/ai/status", params={"refresh": 1})
+    assert len(calls) == 2
+
+
+def test_saving_settings_clears_the_cached_status(client):
+    client.get("/api/ai/status")
+    client.post("/settings", data={"provider": "local", "local_model": "qwen3:32b"})
+    payload = client.get("/api/ai/status").json()
+    assert payload["local"] is True
+    assert payload["model"] == "qwen3:32b"

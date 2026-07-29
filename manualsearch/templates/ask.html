@@ -29,6 +29,10 @@
     {{ answer.question }}
   </p>
   <div class="answer">{{ answer|cite }}</div>
+  <p class="muted" style="margin:14px 0 0;border-top:1px solid var(--line);padding-top:10px">
+    この回答は <b>{{ answer.where }}</b> の <b>{{ answer.model }}</b> が、
+    下の {{ answer.sources|length }} ページを読んで書きました。
+  </p>
 </div>
 
 {% if answer.sources %}
@@ -49,8 +53,7 @@
 
 <p class="muted">
   検索した語: {{ answer.keywords|join(' / ') if answer.keywords else 'なし' }}
-  ／ モデル: {{ answer.model }}
-  {%- if not answer.planned_by_llm %} ／ 検索語はAPIを使わず簡易抽出しました{% endif %}
+  {%- if not answer.planned_by_llm %} ／ 検索語はAIを使わず簡易抽出しました{% endif %}
 </p>
 <p class="notice warn muted">
   回答はマニュアルの抜粋をもとにAIが書いたものです。作業前に必ず根拠ページを確認してください。

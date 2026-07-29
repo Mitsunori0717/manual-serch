@@ -30,6 +30,11 @@ MAX_SOURCE_CHARS = 1500
 # 会話履歴として持ち回る往復数
 MAX_HISTORY_TURNS = 6
 
+# 「繋がっているか」を見るだけの問い合わせに使う待ち時間。
+# 回答用の待ち時間（既定60秒）をそのまま使うと、サーバーが落ちているときに
+# 画面がその間ずっと固まってしまう。
+PROBE_TIMEOUT = 3.0
+
 _PLANNER_SYSTEM = """\
 あなたは日本語の技術マニュアル検索を補助するアシスタントです。
 利用者の質問に答えるために全文検索エンジンへ投げるべき検索語を考えてください。
@@ -89,6 +94,7 @@ class Answer:
     keywords: list[str] = field(default_factory=list)
     sources: list[Source] = field(default_factory=list)
     model: str = ""
+    where: str = ""  # "ローカル" か "OpenAI"。どれが答えたか画面に出すため。
     planned_by_llm: bool = True
 
 
@@ -150,16 +156,16 @@ _PROBE_TAIL = (
 def _build_client(config: AiConfig):
     if not config.enabled:
         raise AssistantError(
-            "APIキーが設定されていません。設定画面でキーを登録するか、"
-            "ローカルのLLMサーバーを使う場合は接続先を指定してください。"
+            "ローカルAIの接続先とモデルを設定してください。"
+            if config.is_local
+            else "OpenAIのAPIキーが設定されていません。設定画面で登録してください。"
         )
     try:
         from openai import OpenAI
     except ImportError as exc:  # pragma: no cover - 依存が無い環境
         raise AssistantError("openai パッケージが入っていません（pip install openai）") from exc
 
-    # Ollama などのローカルサーバーはキーを見ないが、SDKは空を許さないので埋める
-    kwargs = {"api_key": config.api_key or "local", "timeout": config.timeout}
+    kwargs = {"api_key": config.client_api_key, "timeout": config.timeout}
     if config.base_url:
         kwargs["base_url"] = config.base_url
     return OpenAI(**kwargs)
@@ -182,10 +188,27 @@ class Assistant:
         return self._client
 
     # ------------------------------------------------------------------ 接続確認
-    def list_models(self) -> list[str]:
-        """接続先に入っているモデル名を返す。取れなければ空。"""
+    def list_models(self, timeout: float = PROBE_TIMEOUT) -> list[str]:
+        """接続先に入っているモデル名を返す。取れなければ空。
+
+        画面の表示に使うので、待たされないよう短めに打ち切る。
+        """
+        client = self.client
+        # 状態表示のための確認なので、再試行はしない（失敗は失敗として早く返す）
+        with_options = getattr(client, "with_options", None)
+        if with_options is not None:
+            try:
+                client = with_options(timeout=timeout, max_retries=0)
+            except TypeError:  # pragma: no cover - SDKの版差
+                pass
+
         try:
-            return sorted(item.id for item in self.client.models.list().data)
+            try:
+                data = client.models.list(timeout=timeout).data
+            except TypeError:
+                # 差し替えたクライアント（テスト用）は timeout を受け取らない
+                data = client.models.list().data
+            return sorted(item.id for item in data)
         except Exception:
             return []
 
@@ -345,6 +368,7 @@ class Assistant:
                 keywords=keywords,
                 sources=[],
                 model=self.config.model,
+                where=self.config.where,
                 planned_by_llm=planned_by_llm,
             )
 
@@ -372,6 +396,7 @@ class Assistant:
             keywords=keywords,
             sources=sources,
             model=self.config.model,
+            where=self.config.where,
             planned_by_llm=planned_by_llm,
         )
 

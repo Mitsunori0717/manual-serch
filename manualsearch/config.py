@@ -90,35 +90,80 @@ def mask_secret(value: str) -> str:
     return f"{value[:6]}…{value[-4:]}" if len(value) > 14 else "…" * 4
 
 
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_LOCAL_BASE_URL = "http://localhost:11434/v1"
+
+
 @dataclass(frozen=True)
 class AiConfig:
-    """ChatGPT連携の設定。APIキーが無ければ相談機能だけ無効になる。"""
+    """AI相談の設定。
 
+    OpenAI と ローカルサーバーの設定を**両方とも**保持し、``provider`` でどちらを
+    使うかを切り替える。片方を設定するともう片方が消える、という作りにすると
+    「今日はローカル、急ぎのときはOpenAI」のような使い分けができないため。
+    """
+
+    provider: str = "openai"  # "openai" か "local"
     api_key: str = ""
-    model: str = "gpt-4o-mini"
-    base_url: str = ""
+    openai_model: str = DEFAULT_OPENAI_MODEL
+    local_base_url: str = ""
+    local_model: str = ""
     timeout: float = 60.0
+
+    # -------------------------------------------------- 選ばれている側の設定
+    @property
+    def is_local(self) -> bool:
+        return self.provider == "local"
+
+    @property
+    def model(self) -> str:
+        return self.local_model if self.is_local else self.openai_model
+
+    @property
+    def base_url(self) -> str:
+        return self.local_base_url if self.is_local else ""
+
+    @property
+    def client_api_key(self) -> str:
+        # ローカルサーバーはキーを見ないが、SDKが空を許さないので埋める。
+        # OpenAIのキーをローカルサーバーへ送らないよう、ここで切り離す。
+        return "local" if self.is_local else self.api_key
 
     @property
     def enabled(self) -> bool:
-        # ローカルのLLMサーバー（Ollama など）はキーを要求しないので、
-        # 接続先が指定されていればキーが空でも使えるものとして扱う。
-        return bool(self.api_key or self.base_url)
+        return bool(self.local_base_url and self.local_model) if self.is_local else bool(self.api_key)
 
     @property
-    def is_local(self) -> bool:
-        return bool(self.base_url) and any(
-            host in self.base_url for host in ("localhost", "127.0.0.1", "0.0.0.0", "::1")
-        )
+    def where(self) -> str:
+        """画面に出す接続先の呼び名。"""
+        if not self.is_local:
+            return "OpenAI"
+        return "ローカル"
+
+    # -------------------------------------------------- 使える側があるか
+    @property
+    def openai_ready(self) -> bool:
+        return bool(self.api_key)
+
+    @property
+    def local_ready(self) -> bool:
+        return bool(self.local_base_url and self.local_model)
 
     @classmethod
     def from_env(cls) -> "AiConfig":
+        base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
+        provider = os.environ.get("MANUAL_AI_PROVIDER", "").strip().lower()
+        if provider not in ("openai", "local"):
+            # 以前は接続先を入れた時点でローカル扱いだったので、その設定も読めるようにする
+            provider = "local" if base_url else "openai"
+
         return cls(
+            provider=provider,
             api_key=os.environ.get("OPENAI_API_KEY", "").strip(),
-            # 使いたいモデルに合わせて MANUAL_AI_MODEL で差し替える
-            model=os.environ.get("MANUAL_AI_MODEL", "gpt-4o-mini").strip(),
-            # Azure OpenAI や社内ゲートウェイを使う場合はここを向ける
-            base_url=os.environ.get("OPENAI_BASE_URL", "").strip(),
+            openai_model=os.environ.get("MANUAL_AI_MODEL", DEFAULT_OPENAI_MODEL).strip()
+            or DEFAULT_OPENAI_MODEL,
+            local_base_url=base_url,
+            local_model=os.environ.get("MANUAL_LOCAL_MODEL", "").strip(),
             timeout=float(os.environ.get("MANUAL_AI_TIMEOUT", "60")),
         )
 

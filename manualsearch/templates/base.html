@@ -148,6 +148,42 @@
     font-size: 13px;
   }
   .warn-cell { color: var(--warn); font-weight: 600; white-space: nowrap; }
+  .ai-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    padding: 3px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .ai-badge:hover { text-decoration: none; border-color: var(--accent); }
+  .ai-badge .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex: 0 0 auto;
+  }
+  .ai-badge.on .dot { background: #16a34a; }
+  .ai-badge.on { color: var(--text); }
+  .ai-badge.ng .dot { background: #dc2626; }
+  .ai-badge.ng { color: var(--warn); }
+  .ai-badge.warn .dot { background: var(--warn); }
+  .ai-badge b { font-weight: 600; }
+  .provider {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+  }
+  .provider.on { border-color: var(--accent); background: var(--accent-soft); }
+  .provider-head { display: block; margin-bottom: 6px; cursor: pointer; }
+  .provider-head input { margin-right: 6px; }
+  .provider table { margin-left: 22px; width: calc(100% - 22px); }
+  .provider td, .provider th { border-bottom: none; padding: 4px 8px; }
   .overflow { overflow-x: auto; }
 </style>
 </head>
@@ -177,6 +213,10 @@
     <a href="/ask?machine={{ machine|urlencode }}" class="{{ 'on' if tab == 'ask' }}">AIに相談{% if not ai_enabled %}<span class="muted" style="font-size:11px"> 未設定</span>{% endif %}</a>
     <a href="/library?machine={{ machine|urlencode }}" class="{{ 'on' if tab == 'library' }}">マニュアル一覧</a>
     <a href="/settings" class="{{ 'on' if tab == 'settings' }}">設定</a>
+    <a href="/settings" class="ai-badge" id="ai-badge" style="margin-left:auto;align-self:center"
+       title="AIの接続状態。クリックで設定画面へ">
+      <span class="dot"></span><span id="ai-badge-text">確認中…</span>
+    </a>
   </nav>
 </header>
 <main>
@@ -185,5 +225,42 @@
   マニュアル検索 v{{ version }}
 </footer>
 </main>
+<script>
+// AIの接続状態は画面の表示を待たせないよう、あとから取りに行く。
+(function () {
+  var badge = document.getElementById('ai-badge');
+  var label = document.getElementById('ai-badge-text');
+  if (!badge || !label) return;
+
+  fetch('/api/ai/status').then(function (r) { return r.json(); }).then(function (s) {
+    if (!s.enabled) {
+      badge.className = 'ai-badge';
+      label.textContent = 'AI 未設定';
+      badge.title = 'クリックすると設定画面が開きます';
+      return;
+    }
+    if (!s.reachable) {
+      badge.className = 'ai-badge ng';
+      label.textContent = 'AI ' + s.where + ' 未接続';
+      badge.title = s.local
+        ? 'Ollama が起動していないようです。タスクトレイを確認してください。'
+        : '接続できません。設定画面で接続テストを試してください。';
+      return;
+    }
+    if (s.model_found === false) {
+      badge.className = 'ai-badge warn';
+      label.textContent = 'AI ' + s.model + ' が無い';
+      badge.title = 'サーバーにあるモデル: ' + s.models.join(', ');
+      return;
+    }
+    badge.className = 'ai-badge on';
+    label.innerHTML = s.where + ' <b>' + s.model + '</b>';
+    badge.title = '接続できています' + (s.base_url ? '（' + s.base_url + '）' : '');
+  }).catch(function () {
+    badge.className = 'ai-badge ng';
+    label.textContent = 'AI 状態不明';
+  });
+})();
+</script>
 </body>
 </html>

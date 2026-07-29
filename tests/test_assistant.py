@@ -56,7 +56,7 @@ def conn(tmp_path: Path, manual_root: Path):
 
 def make_assistant(replies, fail=False):
     client = FakeClient(replies, fail)
-    return Assistant(AiConfig(api_key="test-key", model="test-model"), client=client), client
+    return Assistant(AiConfig(api_key="test-key", openai_model="test-model"), client=client), client
 
 
 # --------------------------------------------------------------------- 検索語
@@ -154,19 +154,67 @@ def test_empty_question_is_rejected(conn):
 
 def test_missing_api_key_is_reported_clearly(conn):
     assistant = Assistant(AiConfig(api_key=""))
-    with pytest.raises(AssistantError, match="APIキーが設定されていません"):
+    with pytest.raises(AssistantError, match="APIキー"):
         assistant.ask(conn, "エラーコードについて")
 
 
-def test_a_local_server_needs_no_api_key(conn):
-    """Ollama などはキーを見ないので、接続先だけで有効として扱う。"""
-    config = AiConfig(api_key="", base_url="http://localhost:11434/v1")
+def test_an_incomplete_local_setup_is_reported_clearly(conn):
+    assistant = Assistant(AiConfig(provider="local", local_base_url="http://127.0.0.1:1/v1"))
+    with pytest.raises(AssistantError, match="接続先とモデル"):
+        assistant.ask(conn, "エラーコードについて")
+
+
+def test_a_local_server_needs_no_api_key():
+    """Ollama などはキーを見ないので、接続先とモデルだけで使えるものとして扱う。"""
+    config = AiConfig(
+        provider="local", local_base_url="http://localhost:11434/v1", local_model="qwen3:32b"
+    )
     assert config.enabled is True
     assert config.is_local is True
+    assert config.model == "qwen3:32b"
 
 
-def test_a_remote_base_url_is_not_treated_as_local():
-    assert AiConfig(api_key="sk-x", base_url="https://api.example.com/v1").is_local is False
+def test_both_providers_can_be_configured_at_once():
+    """OpenAIとローカルを両方登録しておき、provider で切り替える。"""
+    both = dict(
+        api_key="sk-secret",
+        openai_model="gpt-4o-mini",
+        local_base_url="http://localhost:11434/v1",
+        local_model="qwen3:32b",
+    )
+    openai = AiConfig(provider="openai", **both)
+    local = AiConfig(provider="local", **both)
+
+    assert openai.model == "gpt-4o-mini" and openai.base_url == ""
+    assert local.model == "qwen3:32b" and local.base_url == "http://localhost:11434/v1"
+    # どちらの設定も消えていない
+    assert openai.local_ready and openai.openai_ready
+    assert local.local_ready and local.openai_ready
+
+
+def test_the_openai_key_is_not_sent_to_a_local_server():
+    """ローカルを選んでいるときに、OpenAIのキーを外へ出さないこと。"""
+    config = AiConfig(
+        provider="local",
+        api_key="sk-secret",
+        local_base_url="http://localhost:11434/v1",
+        local_model="qwen3:32b",
+    )
+    assert config.client_api_key == "local"
+    assert AiConfig(provider="openai", api_key="sk-secret").client_api_key == "sk-secret"
+
+
+def test_the_answer_records_which_model_wrote_it(conn):
+    """どのモデルが答えたかを画面に出せるよう、回答に持たせる。"""
+    client = FakeClient([json.dumps({"queries": ["エラーコード"]}), "回答[1]"])
+    assistant = Assistant(
+        AiConfig(provider="local", local_base_url="http://127.0.0.1:1/v1", local_model="qwen3:32b"),
+        client=client,
+    )
+    answer = assistant.ask(conn, "E203について")
+
+    assert answer.model == "qwen3:32b"
+    assert answer.where == "ローカル"
 
 
 def test_planner_retries_without_json_mode(conn):

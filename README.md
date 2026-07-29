@@ -243,11 +243,18 @@ export OPENAI_API_KEY=sk-...
 あり、答えの中の `[1]` をクリックすると該当ページのPDFが開きます。作業前には必ず根拠
 ページを確認してください。
 
+**OpenAI と ローカルは、どちらも登録しておけます。** 設定画面で使う側を選ぶだけで
+切り替わり、選ばなかった側の設定も残ります。いま何に繋がっているかは
+**画面右上のバッジ**に常に出ています（例: `● ローカル qwen3:32b`）。
+どこの何が答えたかは、「AIに相談」の回答のすぐ下にも書かれます。
+
 | 環境変数 | 既定 | 用途 |
 |---|---|---|
-| `OPENAI_API_KEY` | （未設定） | 設定しなければ相談機能だけ無効になる |
-| `MANUAL_AI_MODEL` | `gpt-4o-mini` | 使うモデル |
-| `OPENAI_BASE_URL` | （未設定） | ローカルのLLMサーバー、Azure OpenAI、社内ゲートウェイの接続先 |
+| `MANUAL_AI_PROVIDER` | `openai` | `openai` か `local`。どちらを使うか |
+| `OPENAI_API_KEY` | （未設定） | OpenAIのAPIキー |
+| `MANUAL_AI_MODEL` | `gpt-4o-mini` | OpenAIで使うモデル |
+| `OPENAI_BASE_URL` | （未設定） | ローカルサーバーの接続先 |
+| `MANUAL_LOCAL_MODEL` | （未設定） | ローカルで使うモデル |
 
 ## ローカルのAIで動かす（社外にデータを出さない）
 

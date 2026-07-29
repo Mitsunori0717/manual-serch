@@ -10,55 +10,92 @@
   <h2>AIに相談する機能</h2>
   <p class="muted">
     現在の状態:
-    {% if ai.enabled %}
-    <b style="color:var(--accent)">有効</b>
-    （接続先: {% if ai.is_local %}<b>ローカル</b> {{ ai.base_url }}{% elif ai.base_url %}{{ ai.base_url }}{% else %}OpenAI{% endif %}
-    ／ モデル: {{ ai.model }}{% if api_key_masked %} ／ キー: {{ api_key_masked }}{% endif %}）
+    {% if not ai.enabled %}
+    <b class="warn-cell">無効</b> — 下のどちらかを設定してください
+    {% elif status.reachable and status.model_found is not false %}
+    <b style="color:var(--accent)">{{ ai.where }} の {{ ai.model }} に接続中</b>
+    {% elif status.reachable %}
+    <b class="warn-cell">{{ ai.where }} に接続中。ただし {{ ai.model }} が見つかりません</b>
     {% else %}
-    <b class="warn-cell">無効</b> — APIキーが登録されていません
+    <b class="warn-cell">{{ ai.where }} に接続できません</b>
     {% endif %}
+  </p>
+  <p class="muted">
+    OpenAI と ローカル、<b>どちらも登録しておけます</b>。使う側を選んで保存してください。
   </p>
 
   <form method="post" action="/settings" autocomplete="off">
-    <table>
-      <tr>
-        <th style="width:10em"><label for="api_key">OpenAI APIキー</label></th>
-        <td>
-          <input type="password" id="api_key" name="api_key" style="width:100%"
-                 placeholder="{{ 'sk-… （登録済み。変えるときだけ入力）' if ai.enabled else 'sk-… を貼り付け' }}">
-          <div class="muted" style="font-size:12px">
-            <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">
-              platform.openai.com</a> で発行できます。空欄のまま保存すると、今のキーはそのままです。
-          </div>
-        </td>
-      </tr>
-      <tr>
-        <th><label for="model">モデル</label></th>
-        <td>
-          <input type="text" id="model" name="model" value="{{ ai.model }}" style="width:100%">
-          <div class="muted" style="font-size:12px">
-            OpenAIなら <kbd>gpt-4o-mini</kbd>。ローカルなら <kbd>qwen2.5:14b-instruct</kbd> など、
-            サーバーに入れたモデル名を入れます。
-          </div>
-        </td>
-      </tr>
-      <tr>
-        <th>接続先</th>
-        <td>
-          <label style="display:block">
-            <input type="checkbox" name="use_local" value="1" id="use_local"
-                   {% if ai.base_url %}checked{% endif %}>
-            ローカルのAIサーバーを使う（社外にデータを出さない）
-          </label>
-          <input type="text" name="base_url" style="width:100%;margin-top:6px"
-                 value="{{ ai.base_url }}" placeholder="http://localhost:11434/v1">
-          <div class="muted" style="font-size:12px">
-            Ollama を使う場合は <kbd>http://localhost:11434/v1</kbd>（空欄ならこれを使います）。
-            チェックを外すとOpenAIに接続します。ローカルの場合、APIキーは不要です。
-          </div>
-        </td>
-      </tr>
-    </table>
+
+    <!-- ------------------------------------------------------------ OpenAI -->
+    <div class="provider {{ 'on' if not ai.is_local }}">
+      <label class="provider-head">
+        <input type="radio" name="provider" value="openai" {% if not ai.is_local %}checked{% endif %}>
+        <b>OpenAI を使う</b>
+        <span class="muted">— 速くて賢いが、マニュアルの本文が社外に出る</span>
+        {% if ai.openai_ready %}<span class="chip">登録済み</span>{% endif %}
+      </label>
+      <table>
+        <tr>
+          <th style="width:9em"><label for="api_key">APIキー</label></th>
+          <td>
+            <input type="password" id="api_key" name="api_key" style="width:100%"
+                   placeholder="{{ 'sk-… （登録済み。変えるときだけ入力）' if ai.openai_ready else 'sk-… を貼り付け' }}">
+            <div class="muted" style="font-size:12px">
+              <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a>
+              で発行できます。{% if ai.openai_ready %}今のキー: {{ api_key_masked }}{% endif %}
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <th><label for="openai_model">モデル</label></th>
+          <td><input type="text" id="openai_model" name="openai_model" value="{{ ai.openai_model }}" style="width:100%"></td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- ------------------------------------------------------------ ローカル -->
+    <div class="provider {{ 'on' if ai.is_local }}">
+      <label class="provider-head">
+        <input type="radio" name="provider" value="local" {% if ai.is_local %}checked{% endif %}>
+        <b>ローカルのAIを使う</b>
+        <span class="muted">— マニュアルの内容が社外に出ない。APIキー不要</span>
+        {% if ai.local_ready %}<span class="chip">登録済み</span>{% endif %}
+      </label>
+      <table>
+        <tr>
+          <th style="width:9em"><label for="local_base_url">接続先</label></th>
+          <td>
+            <input type="text" id="local_base_url" name="local_base_url" style="width:100%"
+                   value="{{ ai.local_base_url }}" placeholder="{{ default_local_url }}">
+            <div class="muted" style="font-size:12px">
+              Ollama なら <kbd>{{ default_local_url }}</kbd>（空欄ならこれを使います）
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <th><label for="local_model">モデル</label></th>
+          <td>
+            <input type="text" id="local_model" name="local_model" style="width:100%"
+                   value="{{ ai.local_model }}" placeholder="qwen3:32b"
+                   list="local-model-names">
+            {% if status.models and ai.is_local %}
+            <datalist id="local-model-names">
+              {% for name in status.models %}<option value="{{ name }}">{% endfor %}
+            </datalist>
+            <div class="muted" style="font-size:12px">
+              サーバーにあるモデル:
+              {% for name in status.models %}<kbd>{{ name }}</kbd> {% endfor %}
+            </div>
+            {% else %}
+            <div class="muted" style="font-size:12px">
+              <kbd>ollama list</kbd> に出る名前を入れてください（例: <kbd>qwen3:32b</kbd>）
+            </div>
+            {% endif %}
+          </td>
+        </tr>
+      </table>
+    </div>
+
     <p><button type="submit">保存する</button></p>
   </form>
 
@@ -68,7 +105,7 @@
       接続テスト
     </button>
     <span class="muted" style="margin-left:8px;font-size:13px">
-      実際に問い合わせて、繋がるか・長い文章を扱えるかを確かめます（10〜60秒かかります）
+      選んでいる側に実際に問い合わせて、長い文章を扱えるかまで確かめます（10〜60秒）
     </span>
   </form>
   {% endif %}
@@ -93,9 +130,7 @@
           <b style="color:var(--accent)">{{ ai.model }}</b> が見つかりました
           {% else %}
           <b class="warn-cell">{{ ai.model }} が見つかりません</b>
-          <div class="muted" style="font-size:12px">
-            下の名前のどれかを「モデル」欄に入れてください。
-          </div>
+          <div class="muted" style="font-size:12px">下の名前のどれかをモデル欄に入れてください。</div>
           {% endif %}
           <div class="muted" style="font-size:12px">
             {% for name in check.models %}<kbd>{{ name }}</kbd> {% endfor %}
@@ -113,12 +148,10 @@
           {% else %}
           <b class="warn-cell">NG</b> — 渡した文章の先頭が捨てられています
           <div class="muted" style="font-size:12px">
-            サーバーのコンテキスト長が足りません。このままだとマニュアルの内容を
-            読まずに回答してしまいます。Ollama のアプリなら
-            <b>Settings → Context length のスライダーを 16k</b> にしてください。
+            サーバーのコンテキスト長が足りません。Ollama のアプリなら
+            <b>Settings → Context length を 16k 以上</b>にしてください。
             スライダーが動かせない場合は、同梱の
-            <kbd>scripts\make_ollama_model.bat</kbd> を実行すると、コンテキスト長を
-            埋め込んだモデルを作れます（作られた名前を上のモデル欄に入れてください）。
+            <kbd>scripts\make_ollama_model.bat</kbd> で埋め込んだモデルを作れます。
           </div>
           {% endif %}
         </td>
@@ -130,23 +163,22 @@
 
   {% if ai.enabled %}
   <form method="post" action="/settings"
-        onsubmit="return confirm('APIキーを削除して、AIに相談する機能を無効にします。よろしいですか？')">
+        onsubmit="return confirm('登録した設定を消して、AIに相談する機能を無効にします。よろしいですか？')">
     <input type="hidden" name="clear" value="1">
     <button type="submit" style="background:transparent;color:var(--warn);border-color:var(--line)">
-      APIキーを削除して無効にする
+      設定を消してAI相談を無効にする
     </button>
   </form>
   {% endif %}
 
   <p class="notice warn muted" style="margin-top:16px;margin-bottom:0">
     {% if ai.is_local %}
-    ローカル接続なので、マニュアルの内容は社外に出ません。回答の速さと品質は
-    お使いのPCの性能とモデルの大きさで決まります。
+    ローカルを選んでいるので、マニュアルの内容は社外に出ません。
+    回答の速さと品質は、お使いのPCの性能とモデルの大きさで決まります。
     {% else %}
-    有効にすると、質問に関係するマニュアルのページ本文がOpenAIのサーバーへ送られます
-    （マニュアル全体は送りません）。社外に出せない内容を含む場合は、社内で利用可否を
-    確認してから使ってください。利用量に応じてOpenAIの料金がかかります。
-    社外に出したくない場合は、上の「ローカルのAIサーバーを使う」をお試しください。
+    OpenAIを選んでいます。質問に関係するマニュアルのページ本文が OpenAI のサーバーへ
+    送られます（マニュアル全体は送りません）。社外に出せない内容を含む場合は、
+    ローカルに切り替えてください。利用量に応じて料金がかかります。
     {% endif %}
   </p>
 </div>
