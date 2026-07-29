@@ -85,6 +85,24 @@
           <div class="muted" style="font-size:12px">{{ check.detail }}</div>
         </td>
       </tr>
+      {% if check.models %}
+      <tr>
+        <th>サーバーにあるモデル</th>
+        <td>
+          {% if check.model_found %}
+          <b style="color:var(--accent)">{{ ai.model }}</b> が見つかりました
+          {% else %}
+          <b class="warn-cell">{{ ai.model }} が見つかりません</b>
+          <div class="muted" style="font-size:12px">
+            下の名前のどれかを「モデル」欄に入れてください。
+          </div>
+          {% endif %}
+          <div class="muted" style="font-size:12px">
+            {% for name in check.models %}<kbd>{{ name }}</kbd> {% endfor %}
+          </div>
+        </td>
+      </tr>
+      {% endif %}
       {% if check.reachable %}
       <tr>
         <th>長い文章の読み取り</th>

@@ -130,6 +130,8 @@ class HealthCheck:
     context_ok: bool | None = None
     context_ms: float = 0.0
     context_chars: int = 0
+    models: list[str] = field(default_factory=list)
+    model_found: bool | None = None
 
     @property
     def ok(self) -> bool:
@@ -180,6 +182,13 @@ class Assistant:
         return self._client
 
     # ------------------------------------------------------------------ 接続確認
+    def list_models(self) -> list[str]:
+        """接続先に入っているモデル名を返す。取れなければ空。"""
+        try:
+            return sorted(item.id for item in self.client.models.list().data)
+        except Exception:
+            return []
+
     def check(self, conn: sqlite3.Connection | None = None, *, probe_chars: int = 12000) -> HealthCheck:
         """接続先が使える状態かを確かめる。
 
@@ -214,6 +223,11 @@ class Assistant:
         result.reachable = True
         result.latency_ms = (time.perf_counter() - started) * 1000
         result.detail = f"応答: {reply[:40]}" if reply else "応答が空でした"
+
+        # サーバーに入っているモデル名を出す。名前の打ち間違いがいちばん多いため。
+        result.models = self.list_models()
+        if result.models:
+            result.model_found = self.config.model in result.models
 
         filler = _probe_filler(conn, probe_chars)
         prompt = _PROBE_HEAD + filler + _PROBE_TAIL
