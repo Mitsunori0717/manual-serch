@@ -35,6 +35,17 @@ echo [1/3] 初回セットアップ: 仮想環境を作ります（1〜2分か�
 if not exist "%VPY%" goto venv_failed
 
 :have_venv
+rem フォルダごと移動したりOneDriveで同期したりすると、.venv の中に焼き込まれた
+rem 絶対パスがずれて動かなくなる。実際に起動できるか試し、駄目なら作り直す。
+"%VPY%" -c "import sys" >nul 2>&1
+if not errorlevel 1 goto venv_ok
+
+echo 仮想環境が壊れているので作り直します（フォルダを移動しましたか？）
+rmdir /s /q ".venv" >nul 2>&1
+%PYTHON% -m venv .venv
+if not exist "%VPY%" goto venv_failed
+
+:venv_ok
 if exist ".venv\.requirements-stamp" goto have_deps
 
 echo [2/3] 依存パッケージをインストールします（数分かかることがあります）
@@ -105,6 +116,9 @@ goto done
 
 :index_failed
 echo [エラー] 索引の作成に失敗しました。上のメッセージを確認してください。
+echo.
+echo   原因が分からないときは、このフォルダにある 診断.bat を実行してください。
+echo   診断結果.txt が作られるので、その中身を見せてもらえれば調べられます。
 goto done
 
 :need_pdf

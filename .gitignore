@@ -8,6 +8,9 @@ venv/
 *.egg-info/
 .pytest_cache/
 
+# 診断.bat の出力
+診断結果.txt
+
 # 索引データベース（再生成できるのでコミットしない）
 *.db
 *.db-wal
