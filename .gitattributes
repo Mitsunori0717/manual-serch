@@ -5,3 +5,6 @@
 *.sh  text eol=lf
 *.py  text eol=lf
 *.md  text
+
+# Windowsのメモ帳で開く案内。改行を保つ。
+manuals/*.txt -text
