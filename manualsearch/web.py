@@ -463,6 +463,13 @@ def create_app(config: Config) -> FastAPI:
 
     @app.get("/healthz")
     def healthz(conn: sqlite3.Connection = Depends(get_conn)):
-        return {"status": "ok", "ai": app.state.assistant is not None, **db.stats(conn)}
+        # "app" はポート競合時に自分自身かどうかを見分けるための名札（cli.py が見る）
+        return {
+            "status": "ok",
+            "app": "manualsearch",
+            "version": __version__,
+            "ai": app.state.assistant is not None,
+            **db.stats(conn),
+        }
 
     return app

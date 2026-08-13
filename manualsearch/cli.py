@@ -105,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("root", nargs="?", default=None, help="PDFの置き場（PDFを開くために必要）")
     p_serve.add_argument("--host", default="127.0.0.1", help="既定: 127.0.0.1（社内に公開するなら 0.0.0.0）")
     p_serve.add_argument("--port", type=int, default=8000)
+    p_serve.add_argument("--open", action="store_true", help="起動できたらブラウザで検索画面を開く")
     p_serve.add_argument("--reload", action="store_true", help="開発用の自動リロード")
 
     p_ask = sub.add_parser("ask", help="マニュアルの内容についてChatGPTに相談する")
@@ -384,7 +385,56 @@ def cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def _port_in_use(host: str, port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return True
+    return False
+
+
+def _find_free_port(host: str, start: int, tries: int = 20) -> int | None:
+    for port in range(start, start + tries):
+        if not _port_in_use(host, port):
+            return port
+    return None
+
+
+def _running_manualsearch(url: str) -> bool:
+    """このURLで既にマニュアル検索が動いているか（他のアプリと区別する）。"""
+    import json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url + "healthz", timeout=2) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return False
+    return payload.get("app") == "manualsearch"
+
+
+def _open_browser_when_ready(url: str, timeout: float = 15.0) -> None:
+    """サーバーが応答し始めてからブラウザを開く（別スレッドで呼ぶ）。"""
+    import time
+    import urllib.request
+    import webbrowser
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            urllib.request.urlopen(url + "healthz", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.3)
+    webbrowser.open(url)
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
+    import threading
+
     import uvicorn
 
     config = Config.from_env(args.root, args.db)
@@ -395,8 +445,36 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     from .web import create_app
 
-    print(f"http://{args.host}:{args.port}/ を開いてください（Ctrl+C で終了）")
-    uvicorn.run(create_app(config), host=args.host, port=args.port, log_level="info")
+    host, port = args.host, args.port
+    # 0.0.0.0 で待ち受けてもブラウザからは 127.0.0.1 で見る
+    display_host = "127.0.0.1" if host == "0.0.0.0" else host
+
+    # 前回のウィンドウを閉じ忘れたまま二重起動するのがいちばん多い失敗なので、
+    # 先にポートを確かめる。既にこのアプリが動いていればそれを案内して終わり、
+    # 他のアプリが使っていれば空いているポートへ自動でずらす。
+    if _port_in_use(host, port):
+        url = f"http://{display_host}:{port}/"
+        if _running_manualsearch(url):
+            print(f"検索画面はすでに起動しています: {url}")
+            print("前回のウィンドウが開いたままです。このウィンドウは閉じて構いません。")
+            if args.open:
+                import webbrowser
+
+                webbrowser.open(url)
+            return 0
+        moved = _find_free_port(host, port + 1)
+        if moved is None:
+            print(f"[エラー] ポート {port} は別のアプリが使用中で、代わりも見つかりません。", file=sys.stderr)
+            print("  set PORT=8100 のようにポートを指定して起動し直してください。", file=sys.stderr)
+            return 1
+        print(f"ポート {port} は別のアプリが使用中のため、ポート {moved} で起動します。")
+        port = moved
+
+    url = f"http://{display_host}:{port}/"
+    print(f"{url} を開いてください（Ctrl+C で終了）")
+    if args.open:
+        threading.Thread(target=_open_browser_when_ready, args=(url,), daemon=True).start()
+    uvicorn.run(create_app(config), host=host, port=port, log_level="info")
     return 0
 
 
