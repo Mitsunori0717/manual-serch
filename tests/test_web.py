@@ -105,6 +105,8 @@ def test_healthz_reports_the_index(client):
     payload = client.get("/healthz").json()
     assert payload["status"] == "ok"
     assert payload["documents"] == 3
+    # ポート競合時に cli.py が「自分自身か」を見分けるための名札
+    assert payload["app"] == "manualsearch"
 
 
 # --------------------------------------------------------------- AI相談画面

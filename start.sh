@@ -79,13 +79,7 @@ fi
 say "索引を更新します（増えたPDFだけ読みます）"
 MANUAL_DB="$MANUAL_DB" "$VPY" -m manualsearch index "$MANUAL_ROOT"
 
-URL="http://$HOST:$PORT/"
-say "検索画面: $URL"
-(
-  sleep 2
-  if command -v open >/dev/null 2>&1; then open "$URL"
-  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL"
-  fi
-) >/dev/null 2>&1 &
-
-MANUAL_DB="$MANUAL_DB" exec "$VPY" -m manualsearch serve "$MANUAL_ROOT" --host "$HOST" --port "$PORT"
+# ブラウザはサーバー側（Python）が開く。ポートが使用中のときに実際に使われる
+# ポートを知っているのはPythonだけなので、ここでは開かない。
+say "検索画面をブラウザで自動的に開きます"
+MANUAL_DB="$MANUAL_DB" exec "$VPY" -m manualsearch serve "$MANUAL_ROOT" --host "$HOST" --port "$PORT" --open

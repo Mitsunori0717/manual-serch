@@ -93,12 +93,13 @@ if errorlevel 1 goto index_failed
 
 echo.
 echo ============================================
-echo  検索画面: http://%HOST%:%PORT%/
+echo  検索画面をブラウザで自動的に開きます。
 echo  終了するには、この画面で Ctrl+C を押すか
 echo  ウィンドウを閉じてください。
 echo ============================================
-start "" "http://%HOST%:%PORT%/"
-"%VPY%" -m manualsearch serve "%MANUAL_ROOT%" --host "%HOST%" --port "%PORT%"
+rem ブラウザはサーバー側（Python）が開く。ポートが使用中のときに実際に
+rem 使われるポートを知っているのはPythonだけなので、ここでは開かない。
+"%VPY%" -m manualsearch serve "%MANUAL_ROOT%" --host "%HOST%" --port "%PORT%" --open
 goto done
 
 rem ---------------------------------------------------------------- 異常終了
