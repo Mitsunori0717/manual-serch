@@ -1,4 +1,4 @@
-.PHONY: setup index serve sample test clean
+.PHONY: setup index serve sample test exe clean
 .DEFAULT_GOAL := serve
 
 VENV        ?= .venv
@@ -29,5 +29,9 @@ test: $(PY)  ## テストを流す
 	$(PY) -m pip install --quiet pytest httpx
 	$(PY) -m pytest -q
 
+exe: $(PY)  ## 配布用の実行ファイルを作る（このOS用。WindowsのEXEはbuild-exe.batで）
+	$(PY) -m pip install --quiet pyinstaller
+	$(PY) scripts/build_exe.py
+
 clean:  ## 索引と仮想環境を消す（PDFは消さない）
-	rm -rf $(VENV) $(MANUAL_DB) $(MANUAL_DB)-wal $(MANUAL_DB)-shm
+	rm -rf $(VENV) $(MANUAL_DB) $(MANUAL_DB)-wal $(MANUAL_DB)-shm build dist

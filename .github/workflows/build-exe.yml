@@ -1,0 +1,53 @@
+# Windows用EXEの自動ビルド。
+#
+# 動かしかたは2通り:
+#   1. GitHubの Actions タブ → 「Build Windows EXE」 → Run workflow（手動）
+#   2. `git tag v1.0.0 && git push origin v1.0.0` のようにタグを押す
+#
+# どちらも成果物（zip）が Actions の Artifacts に残る。タグのときはさらに
+# Releases にも添付されるので、現場へは Releases のzipのURLを配ればよい。
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # タグ時にReleaseへ添付するため
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 依存パッケージとPyInstallerを準備
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: EXEをビルド
+        run: python scripts/build_exe.py
+
+      - name: zipにまとめる
+        shell: pwsh
+        run: Compress-Archive -Path "dist/マニュアル検索" -DestinationPath "マニュアル検索-windows.zip"
+
+      - name: Artifactsへ保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-search-windows
+          path: マニュアル検索-windows.zip
+
+      - name: Releaseへ添付（タグのときだけ）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: マニュアル検索-windows.zip
