@@ -647,6 +647,40 @@ cronやタスクスケジューラで次を実行してください。
 .venv/bin/python -m manualsearch index manuals
 ```
 
+## EXEにして配る（Pythonが要らない配布物）
+
+現場のPCにPythonを入れて回るのが大変なときは、全部入りのEXEにできます。
+作りかたは2通りです。
+
+### A. 手元のWindowsで作る（ワンタッチ）
+
+`build-exe.bat` をダブルクリックしてください。仮想環境の準備から
+PyInstallerでのビルドまで自動で走り、`dist\マニュアル検索\` に出来上がります。
+
+- `dist\マニュアル検索\` フォルダごとコピーすれば、**Pythonが入っていないPCでも動きます**
+- 使う人は中の `マニュアル検索.exe` をダブルクリックするだけです
+  （索引の更新 → ブラウザで検索画面、という start.bat と同じ流れが走ります）
+- PDFは、EXEの隣にできる `manuals` フォルダに入れます。索引（index.db）や
+  設定（.env）もEXEの隣に作られるので、フォルダごと移動してもそのまま動きます
+- フォルダには「はじめにお読みください.txt」が同梱されるので、そのまま配れます
+
+EXEはビルドしたOS用にしかできません（WindowsのEXEはWindows上で作ります）。
+OCR（スキャンしたPDFの読み取り）を使う場合は、配布先のPCにも Tesseract の
+インストールが必要です。
+
+### B. GitHubに任せる（タグを押すだけ）
+
+リポジトリに `v1.0.0` のようなタグを押すと、GitHub Actions がWindows上で
+EXEをビルドし、Releases にzipを添付します。
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+手元にWindowsが無くても作れます。Actionsタブの「Build Windows EXE」から
+手動実行（Run workflow）もでき、その場合は成果物が Artifacts に残ります。
+
 ## 規模の目安
 
 | 項目 | 目安 |
